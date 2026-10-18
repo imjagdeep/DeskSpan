@@ -1015,7 +1015,10 @@ async fn upload_preflight(headers: HeaderMap) -> Response {
         header::ACCESS_CONTROL_ALLOW_HEADERS,
         HeaderValue::from_static("x-deskspan-device, x-deskspan-key, content-type"),
     );
-    h.insert(header::ACCESS_CONTROL_MAX_AGE, HeaderValue::from_static("600"));
+    h.insert(
+        header::ACCESS_CONTROL_MAX_AGE,
+        HeaderValue::from_static("600"),
+    );
     res
 }
 
@@ -1306,9 +1309,15 @@ mod tests {
         );
         assert!(!same_origin(&h));
         // The DeskSpan Screen app.
-        h.insert(header::ORIGIN, HeaderValue::from_static("tauri://localhost"));
+        h.insert(
+            header::ORIGIN,
+            HeaderValue::from_static("tauri://localhost"),
+        );
         assert!(same_origin(&h));
-        h.insert(header::ORIGIN, HeaderValue::from_static("http://tauri.localhost"));
+        h.insert(
+            header::ORIGIN,
+            HeaderValue::from_static("http://tauri.localhost"),
+        );
         assert!(same_origin(&h));
     }
 
