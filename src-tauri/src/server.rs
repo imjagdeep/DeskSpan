@@ -49,7 +49,7 @@ pub struct ScreenInfo {
 
 #[derive(Debug, Deserialize)]
 #[serde(tag = "kind", rename_all = "kebab-case")]
-enum Auth {
+pub enum Auth {
     Token { token: String },
     Code { code: String },
     Device { id: String, key: String },
