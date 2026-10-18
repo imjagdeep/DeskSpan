@@ -59,6 +59,9 @@ objc2-core-graphics = "0.3"
 objc2-screen-capture-kit = "0.3"
 # The main dispatch queue for virtual displays (vdisplay.rs).
 dispatch2 = "0.3"
+# The continuous screen stream (scstream.rs): sample and pixel buffers.
+objc2-core-media = "0.3"
+objc2-core-video = "0.3"
 block2 = "0.6"
 
 [dev-dependencies]

@@ -165,26 +165,36 @@ impl Video {
             BitRate, Encoder, EncoderConfig, FrameRate, IntraFramePeriod, Profile, RateControlMode,
             UsageType,
         };
-        use openh264::formats::YUVBuffer;
+        use openh264::formats::YUVSlices;
 
         let api = crate::h264lib::load(library)?;
+        // Several cores: a Retina-sized frame is a lot for one.
+        let threads = std::thread::available_parallelism()
+            .map(|n| n.get().min(4))
+            .unwrap_or(2) as u16;
         let config = EncoderConfig::new()
             .usage_type(UsageType::ScreenContentRealTime)
             .profile(Profile::Baseline)
             .rate_control_mode(RateControlMode::Bitrate)
             .bitrate(BitRate::from_bps(BITRATE))
             .max_frame_rate(FrameRate::from_hz(FPS as f32))
-            .intra_frame_period(IntraFramePeriod::from_num_frames(FPS * 10));
+            .intra_frame_period(IntraFramePeriod::from_num_frames(FPS * 10))
+            .num_threads(threads);
         let mut encoder = Encoder::with_api_config(api, config)
             .map_err(|e| format!("the H.264 encoder didn't start: {e}"))?;
         let monitor = monitor_for(self.target)?;
+        let mut source = Source::open(&monitor);
         self.set_state("streaming", None);
 
         let start = Instant::now();
         let frame_time = Duration::from_secs(1) / FPS;
         let mut alone_since: Option<Instant> = None;
+        // The newest picture (I420, w, h): repeated when a full picture is
+        // needed while the screen is still.
+        let mut last: Option<(Vec<u8>, u32, u32)> = None;
         let mut counted = 0u32;
         let mut count_from = Instant::now();
+        let mut logged = Instant::now();
         loop {
             let began = Instant::now();
             if self.tx.receiver_count() == 0 {
@@ -197,18 +207,48 @@ impl Video {
             }
             alone_since = None;
 
-            let (rgba, sw, sh) = grab(&monitor)?;
-            let scale = if sw > MAX_WIDTH { 2 } else { 1 };
-            let (yuv, w, h) = rgba_to_i420(&rgba, sw, sh, scale);
-            if w == 0 || h == 0 {
+            // Once a second: the counter, the log line, the display's size.
+            if count_from.elapsed() >= Duration::from_secs(1) {
+                let fps = counted;
+                if let Some((_, w, h)) = last.as_ref() {
+                    let mut g = self.lock();
+                    g.status.fps = fps;
+                    g.status.width = *w;
+                    g.status.height = *h;
+                }
+                if logged.elapsed() >= Duration::from_secs(5) {
+                    tracing::info!("video {:?}: {fps} fps", self.target);
+                    logged = Instant::now();
+                }
+                counted = 0;
+                count_from = Instant::now();
+                // The display may have changed size (receiver went full screen).
+                source.follow_size(&monitor);
+            }
+
+            let fresh = source.next(&monitor)?;
+            let want_key = self.keyframe.swap(false, Ordering::Relaxed);
+            match fresh {
+                Some(frame) => last = Some(frame),
+                // Nothing changed: only a requested full picture is sent.
+                None if !want_key => continue,
+                None => {}
+            }
+            let Some((yuv, w, h)) = last.as_ref() else {
+                continue;
+            };
+            let (wu, hu) = (*w as usize, *h as usize);
+            if wu == 0 || hu == 0 {
                 return Err("the screen reported no size".into());
             }
-            let buffer = YUVBuffer::from_vec(yuv, w as usize, h as usize);
-            if self.keyframe.swap(false, Ordering::Relaxed) {
+            let (y, uv) = yuv.split_at(wu * hu);
+            let (u, v) = uv.split_at(wu * hu / 4);
+            let slices = YUVSlices::new((y, u, v), (wu, hu), (wu, wu / 2, wu / 2));
+            if want_key {
                 encoder.force_intra_frame();
             }
             let bits = encoder
-                .encode(&buffer)
+                .encode(&slices)
                 .map_err(|e| format!("encoding failed: {e}"))?;
             let data = bits.to_vec();
             if !data.is_empty() {
@@ -220,21 +260,98 @@ impl Video {
                 // No receivers left between the check and now: fine.
                 let _ = self.tx.send(Arc::new(frame));
             }
-
             counted += 1;
-            if count_from.elapsed() >= Duration::from_secs(1) {
-                let mut g = self.lock();
-                g.status.fps = counted;
-                g.status.width = w;
-                g.status.height = h;
-                counted = 0;
-                count_from = Instant::now();
-            }
-            if let Some(rest) = frame_time.checked_sub(began.elapsed()) {
-                std::thread::sleep(rest);
+
+            if !source.pushes() {
+                if let Some(rest) = frame_time.checked_sub(began.elapsed()) {
+                    std::thread::sleep(rest);
+                }
             }
         }
     }
+}
+
+/// Where pictures come from. macOS 14+: a continuous ScreenCaptureKit
+/// stream (frames pushed when the screen changes). Otherwise, and if the
+/// stream can't start: one screenshot per frame.
+enum Source {
+    Grab,
+    #[cfg(target_os = "macos")]
+    Stream {
+        capture: crate::scstream::Capture,
+        size: (u32, u32),
+    },
+}
+
+impl Source {
+    fn open(_monitor: &xcap::Monitor) -> Source {
+        #[cfg(target_os = "macos")]
+        if crate::sck::available() {
+            let started = stream_size(_monitor).and_then(|(w, h)| {
+                let id = _monitor.id().map_err(|e| format!("screen id: {e}"))?;
+                crate::scstream::Capture::start(id, w, h, FPS).map(|c| (c, (w, h)))
+            });
+            match started {
+                Ok((capture, size)) => {
+                    tracing::info!("screen stream {}x{} started", size.0, size.1);
+                    return Source::Stream { capture, size };
+                }
+                Err(e) => tracing::warn!("{e}; using screenshots instead"),
+            }
+        }
+        Source::Grab
+    }
+
+    /// The next picture as I420, or None if the screen hasn't changed.
+    fn next(&mut self, monitor: &xcap::Monitor) -> Result<Option<(Vec<u8>, u32, u32)>, String> {
+        match self {
+            Source::Grab => {
+                let (rgba, sw, sh) = grab(monitor)?;
+                let scale = if sw > MAX_WIDTH { 2 } else { 1 };
+                Ok(Some(rgba_to_i420(&rgba, sw, sh, scale)))
+            }
+            #[cfg(target_os = "macos")]
+            Source::Stream { capture, .. } => Ok(capture
+                .next(Duration::from_millis(100))
+                .map(|y| (y.data, y.w, y.h))),
+        }
+    }
+
+    /// Frames arrive by themselves (no pacing needed).
+    fn pushes(&self) -> bool {
+        !matches!(self, Source::Grab)
+    }
+
+    /// Keep the stream at the display's current size.
+    fn follow_size(&mut self, _monitor: &xcap::Monitor) {
+        #[cfg(target_os = "macos")]
+        if let Source::Stream { capture, size } = self {
+            if let Ok(now) = stream_size(_monitor) {
+                if now != *size {
+                    match capture.resize(now.0, now.1) {
+                        Ok(()) => {
+                            tracing::info!("screen stream now {}x{}", now.0, now.1);
+                            *size = now;
+                        }
+                        Err(e) => tracing::warn!("{e}"),
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// The stream size for a display: its pixels, halved when very wide.
+#[cfg(target_os = "macos")]
+fn stream_size(monitor: &xcap::Monitor) -> Result<(u32, u32), String> {
+    let scale = monitor.scale_factor().unwrap_or(1.0) as f64;
+    let w = (monitor.width().map_err(|e| format!("screen size: {e}"))? as f64 * scale) as u32;
+    let h = (monitor.height().map_err(|e| format!("screen size: {e}"))? as f64 * scale) as u32;
+    Ok(if w > MAX_WIDTH {
+        ((w / 2) & !1, (h / 2) & !1)
+    } else {
+        (w & !1, h & !1)
+    })
 }
 
 /// One picture of the screen as RGBA. macOS 14+: ScreenCaptureKit, asked
