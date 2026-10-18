@@ -36,18 +36,6 @@ pub struct Yuv {
     pub h: u32,
 }
 
-impl Yuv {
-    /// (Y, U, V) slices for the encoder.
-    pub fn planes(&self) -> (&[u8], &[u8], &[u8]) {
-        let y = (self.w * self.h) as usize;
-        let c = y / 4;
-        (
-            &self.data[..y],
-            &self.data[y..y + c],
-            &self.data[y + c..y + 2 * c],
-        )
-    }
-}
 
 struct Ivars {
     tx: SyncSender<Yuv>,
