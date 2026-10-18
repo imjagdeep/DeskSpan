@@ -4,6 +4,7 @@
 //! the encoded screen (video.rs, Cisco's OpenH264 via h264lib.rs).
 
 mod account;
+mod adb;
 mod desklab;
 mod devices;
 mod h264lib;
@@ -129,6 +130,27 @@ fn hub_status(hub: State<'_, Arc<Hub>>) -> server::Status {
 #[tauri::command]
 fn video_status(video: State<'_, video::Video>) -> video::VideoStatus {
     video.status()
+}
+
+/// Android phones by USB cable: find or download adb, remember it's on.
+#[tauri::command]
+async fn usb_setup(state: State<'_, AppState>, hub: State<'_, Arc<Hub>>) -> CmdResult<()> {
+    hub.inner().usb_setup().await?;
+    let mut s = state.settings().clone();
+    s.usb_cable = true;
+    s.save(&state.data_dir)?;
+    *state.settings() = s;
+    Ok(())
+}
+
+#[tauri::command]
+fn usb_off(state: State<'_, AppState>, hub: State<'_, Arc<Hub>>) -> CmdResult<()> {
+    hub.usb_off();
+    let mut s = state.settings().clone();
+    s.usb_cable = false;
+    s.save(&state.data_dir)?;
+    *state.settings() = s;
+    Ok(())
 }
 
 /// A fresh QR link and code; the old ones stop working.
@@ -341,6 +363,7 @@ pub fn run() {
                 tracing::warn!("{e}");
             }
             let start_now = settings.start_on_launch;
+            let usb_cable = settings.usb_cable;
             let hub = Hub::new(app.handle().clone(), &data_dir);
             let video = video::Video::new(data_dir.clone());
             media::start(
@@ -349,6 +372,15 @@ pub fn run() {
                 video.clone(),
                 data_dir.clone(),
             );
+            if usb_cable {
+                // Finds the adb set up before (no download unless it's gone).
+                let hub = hub.clone();
+                tauri::async_runtime::spawn(async move {
+                    if let Err(e) = hub.usb_setup().await {
+                        tracing::warn!("USB cable: {e}");
+                    }
+                });
+            }
             app.manage(hub);
             app.manage(video);
             app.manage(AppState {
@@ -390,6 +422,8 @@ pub fn run() {
             hub_status,
             video_status,
             new_pairing,
+            usb_setup,
+            usb_off,
             answer_request,
             devices_list,
             device_remove,

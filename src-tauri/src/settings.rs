@@ -18,6 +18,8 @@ pub struct Settings {
     pub start_on_launch: bool,
     /// Set after the first start, when "start with the computer" was offered.
     pub autostart_applied: bool,
+    /// Android phones by USB cable (adb) were set up.
+    pub usb_cable: bool,
 }
 
 impl Default for Settings {
@@ -27,6 +29,7 @@ impl Default for Settings {
             listen_everywhere: false,
             start_on_launch: false,
             autostart_applied: false,
+            usb_cable: false,
         }
     }
 }

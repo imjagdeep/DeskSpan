@@ -166,6 +166,8 @@ struct Session {
     screen: Option<ScreenInfo>,
     /// The picture is on (the receiver chose "Use as screen").
     screen_on: bool,
+    /// Came over the USB cable (adb forwards to this computer's localhost).
+    via_usb: bool,
     tx: mpsc::UnboundedSender<String>,
 }
 
@@ -212,7 +214,10 @@ struct Inner {
 
 pub struct Hub {
     app: AppHandle,
+    data_dir: std::path::PathBuf,
     inner: Mutex<Inner>,
+    /// Android phones on a USB cable (adb.rs).
+    usb: crate::adb::Usb,
 }
 
 #[derive(Debug, Serialize)]
@@ -225,6 +230,8 @@ pub struct SessionView {
     pub screen: Option<ScreenInfo>,
     /// Showing the picture (not just connected).
     pub screen_on: bool,
+    /// Connected by USB cable.
+    pub via_usb: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -249,12 +256,16 @@ pub struct Status {
     pub expires_in: u64,
     pub sessions: Vec<SessionView>,
     pub requests: Vec<RequestView>,
+    /// Android phones on a USB cable.
+    pub usb: crate::adb::UsbView,
 }
 
 impl Hub {
     pub fn new(app: AppHandle, data_dir: &Path) -> Arc<Hub> {
         Arc::new(Hub {
             app,
+            data_dir: data_dir.to_path_buf(),
+            usb: crate::adb::Usb::default(),
             inner: Mutex::new(Inner {
                 devices: Devices::load(data_dir),
                 pairing: None,
@@ -310,6 +321,7 @@ impl Hub {
                 .unwrap_or(0),
             pair_url,
             qr_svg,
+            usb: self.usb.view(),
             sessions: g
                 .sessions
                 .iter()
@@ -321,6 +333,7 @@ impl Hub {
                     since: s.since,
                     screen: s.screen,
                     screen_on: s.screen_on,
+                    via_usb: s.via_usb,
                 })
                 .collect(),
             requests: g
@@ -377,6 +390,7 @@ impl Hub {
                 if !me.refresh_addresses(generation).await {
                     break;
                 }
+                me.usb_tick().await;
             }
         });
         Ok(())
@@ -413,6 +427,54 @@ impl Hub {
             }
         });
         Ok(tx)
+    }
+
+    /// Android phones on a USB cable: set them up (blocking adb calls).
+    pub fn usb(&self) -> &crate::adb::Usb {
+        &self.usb
+    }
+
+    /// Find or download adb (the "Set up" button). The status shows progress.
+    pub async fn usb_setup(self: &Arc<Self>) -> Result<(), String> {
+        let me = self.clone();
+        let task = tauri::async_runtime::spawn_blocking(move || {
+            me.changed();
+            let r = me.usb.setup(&me.data_dir);
+            me.changed();
+            r
+        });
+        task.await
+            .map_err(|e| format!("cannot set up USB: {e}"))??;
+        self.usb_tick().await;
+        Ok(())
+    }
+
+    pub fn usb_off(&self) {
+        self.usb.turn_off();
+        self.changed();
+    }
+
+    /// One look at the cable while sharing.
+    async fn usb_tick(self: &Arc<Self>) {
+        if !self.usb.ready() {
+            return;
+        }
+        let (port, link) = {
+            let g = self.lock();
+            let port = g.running.as_ref().map(|r| r.port);
+            let link = g
+                .pairing
+                .as_ref()
+                .filter(|p| !p.expired())
+                .map(|p| format!("#t={}", p.token));
+            (port, link)
+        };
+        let before = self.usb.view().phones;
+        let me = self.clone();
+        let _ = tauri::async_runtime::spawn_blocking(move || me.usb.tick(port, link)).await;
+        if self.usb.view().phones != before {
+            self.changed();
+        }
     }
 
     /// Add servers for new addresses (a cable was plugged in) and stop those
@@ -496,6 +558,8 @@ impl Hub {
             g.pairing = None;
             gone
         };
+        // Phones on the cable: their page connection is gone too.
+        self.usb.tick(None, None);
         for session in gone {
             self.media(MediaEvent::Left { session });
         }
@@ -1069,6 +1133,7 @@ async fn receiver(hub: Arc<Hub>, socket: WebSocket, addr: SocketAddr) {
                 since: devices::now(),
                 screen,
                 screen_on: false,
+                via_usb: addr.ip().is_loopback(),
                 tx: tx.clone(),
             },
         );
@@ -1111,18 +1176,19 @@ async fn receiver(hub: Arc<Hub>, socket: WebSocket, addr: SocketAddr) {
                     match g.sessions.get_mut(&session) {
                         Some(s) if !s.screen_on => {
                             s.screen_on = true;
-                            Some((s.screen, extend))
+                            Some((s.screen, extend, s.via_usb))
                         }
                         _ => None,
                     }
                 };
-                if let Some((screen, extend)) = start {
+                if let Some((screen, extend, usb)) = start {
                     hub.media(MediaEvent::Joined(crate::media::Join {
                         session,
                         device_id: device.id.clone(),
                         name: device.name.clone(),
                         screen,
                         extend,
+                        usb,
                     }));
                     hub.changed();
                 }

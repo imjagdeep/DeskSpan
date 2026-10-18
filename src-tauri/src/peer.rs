@@ -8,15 +8,17 @@
 
 use crate::server::{Hub, Inbound, Outbound};
 use crate::video::{Frame, Video};
-use std::net::SocketAddr;
-use std::sync::Arc;
+use std::collections::HashMap;
+use std::net::{Ipv4Addr, SocketAddr};
+use std::sync::{Arc, Mutex};
 use std::time::Instant;
 use str0m::change::SdpAnswer;
 use str0m::format::Codec;
 use str0m::media::{Direction, Frequency, MediaKind, MediaTime, Mid, Pt};
-use str0m::net::{Protocol, Receive};
+use str0m::net::{Protocol, Receive, TcpType};
 use str0m::{Candidate, Event, IceConnectionState, Input, Output, Rtc};
-use tokio::net::UdpSocket;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::net::{TcpListener, UdpSocket};
 use tokio::sync::{broadcast, mpsc};
 
 /// Why a connection ended.
@@ -29,8 +31,12 @@ pub enum Ended {
     Fatal(String),
 }
 
+/// Writers for the cable's TCP connections, by the phone's address.
+type TcpOut = Arc<Mutex<HashMap<SocketAddr, mpsc::UnboundedSender<Vec<u8>>>>>;
+
 struct Packet {
     data: Vec<u8>,
+    proto: Protocol,
     source: SocketAddr,
     destination: SocketAddr,
 }
@@ -42,19 +48,39 @@ pub async fn run(
     session: u64,
     signals: &mut mpsc::UnboundedReceiver<Inbound>,
     video: &Video,
+    usb: bool,
 ) -> Ended {
-    // Our UDP sockets: one per address the server listens on.
+    // Network: UDP sockets on the server's addresses. Over the USB cable
+    // instead one loopback TCP port, which adb forwards to the phone's own
+    // localhost (adb carries TCP only), so the picture stays on the cable.
     let mut sockets: Vec<Arc<UdpSocket>> = Vec::new();
-    for ip in hub.listen_ips() {
-        if ip.is_ipv4() {
-            match UdpSocket::bind(SocketAddr::new(ip, 0)).await {
-                Ok(s) => sockets.push(Arc::new(s)),
-                Err(e) => tracing::warn!("no UDP socket on {ip}: {e}"),
+    if !usb {
+        for ip in hub.listen_ips() {
+            if ip.is_ipv4() {
+                match UdpSocket::bind(SocketAddr::new(ip, 0)).await {
+                    Ok(s) => sockets.push(Arc::new(s)),
+                    Err(e) => tracing::warn!("no UDP socket on {ip}: {e}"),
+                }
             }
         }
     }
-    if sockets.is_empty() {
+    let tcp = if usb {
+        match TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).await {
+            Ok(l) => Some(l),
+            Err(e) => return Ended::Dropped(format!("no port for the cable: {e}")),
+        }
+    } else {
+        None
+    };
+    let tcp_addr = tcp.as_ref().and_then(|l| l.local_addr().ok());
+    if sockets.is_empty() && tcp_addr.is_none() {
         return Ended::Dropped("no network address for the picture".into());
+    }
+    if let Some(addr) = tcp_addr {
+        // Forward it to the phone before it learns about it.
+        let hub2 = hub.clone();
+        let port = addr.port();
+        let _ = tauri::async_runtime::spawn_blocking(move || hub2.usb().add_port(port)).await;
     }
 
     let mut rtc = Rtc::builder()
@@ -69,6 +95,20 @@ pub async fn run(
             }
             Ok(Err(e)) => tracing::warn!("bad local candidate: {e}"),
             Err(e) => tracing::warn!("socket address: {e}"),
+        }
+    }
+    if let Some(addr) = tcp_addr {
+        // The phone's browser connects (active), we listen (passive).
+        match Candidate::builder()
+            .tcp()
+            .host(addr)
+            .tcptype(TcpType::Passive)
+            .build()
+        {
+            Ok(c) => {
+                rtc.add_local_candidate(c);
+            }
+            Err(e) => tracing::warn!("bad cable candidate: {e}"),
         }
     }
 
@@ -106,12 +146,58 @@ pub async fn run(
             while let Ok((n, source)) = s.recv_from(&mut buf).await {
                 let p = Packet {
                     data: buf[..n].to_vec(),
+                    proto: Protocol::Udp,
                     source,
                     destination: local,
                 };
                 if tx.send(p).await.is_err() {
                     break;
                 }
+            }
+        }));
+    }
+    // The cable: each TCP connection carries RFC 4571 frames (a two-byte
+    // length before every packet), in and out.
+    let tcp_out: TcpOut = Arc::new(Mutex::new(HashMap::new()));
+    if let (Some(listener), Some(local)) = (tcp, tcp_addr) {
+        let (tx, out) = (net_tx.clone(), tcp_out.clone());
+        readers.push(tauri::async_runtime::spawn(async move {
+            while let Ok((stream, remote)) = listener.accept().await {
+                let _ = stream.set_nodelay(true);
+                let (mut rd, mut wr) = stream.into_split();
+                let (wtx, mut wrx) = mpsc::unbounded_channel::<Vec<u8>>();
+                out.lock()
+                    .unwrap_or_else(|p| p.into_inner())
+                    .insert(remote, wtx);
+                tauri::async_runtime::spawn(async move {
+                    while let Some(packet) = wrx.recv().await {
+                        let mut framed = Vec::with_capacity(packet.len() + 2);
+                        framed.extend_from_slice(&(packet.len() as u16).to_be_bytes());
+                        framed.extend_from_slice(&packet);
+                        if wr.write_all(&framed).await.is_err() {
+                            break;
+                        }
+                    }
+                });
+                let tx = tx.clone();
+                tauri::async_runtime::spawn(async move {
+                    let mut len = [0u8; 2];
+                    while rd.read_exact(&mut len).await.is_ok() {
+                        let mut data = vec![0u8; u16::from_be_bytes(len) as usize];
+                        if rd.read_exact(&mut data).await.is_err() {
+                            break;
+                        }
+                        let p = Packet {
+                            data,
+                            proto: Protocol::Tcp,
+                            source: remote,
+                            destination: local,
+                        };
+                        if tx.send(p).await.is_err() {
+                            break;
+                        }
+                    }
+                });
             }
         }));
     }
@@ -124,6 +210,16 @@ pub async fn run(
         let timeout = loop {
             match rtc.poll_output() {
                 Ok(Output::Timeout(t)) => break t,
+                Ok(Output::Transmit(t)) if t.proto == Protocol::Tcp => {
+                    let out = tcp_out
+                        .lock()
+                        .unwrap_or_else(|p| p.into_inner())
+                        .get(&t.destination)
+                        .cloned();
+                    if let Some(out) = out {
+                        let _ = out.send(t.contents.to_vec());
+                    }
+                }
                 Ok(Output::Transmit(t)) => {
                     if let Some(s) = sockets
                         .iter()
@@ -172,7 +268,7 @@ pub async fn run(
                 let Ok(contents) = p.data.as_slice().try_into() else { continue };
                 let input = Input::Receive(
                     Instant::now(),
-                    Receive { proto: Protocol::Udp, source: p.source, destination: p.destination, contents },
+                    Receive { proto: p.proto, source: p.source, destination: p.destination, contents },
                 );
                 if rtc.accepts(&input) {
                     if let Err(e) = rtc.handle_input(input) {
@@ -223,6 +319,13 @@ pub async fn run(
     rtc.disconnect();
     for r in readers {
         r.abort();
+    }
+    // Closing the writers ends the cable's connections.
+    tcp_out.lock().unwrap_or_else(|p| p.into_inner()).clear();
+    if let Some(addr) = tcp_addr {
+        let hub2 = hub.clone();
+        let port = addr.port();
+        let _ = tauri::async_runtime::spawn_blocking(move || hub2.usb().remove_port(port)).await;
     }
     ended
 }

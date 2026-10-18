@@ -118,6 +118,7 @@ export function Share() {
                 <div>
                   {s.name}
                   <span className={s.screen_on ? "badge" : "badge muted-badge"}>{s.screen_on ? "Screen" : "Connected"}</span>
+                  {s.via_usb && <span className="badge muted-badge">USB cable</span>}
                 </div>
                 <div className="device-meta">
                   {s.address}
@@ -128,7 +129,71 @@ export function Share() {
           ))
         )}
       </div>
+      <UsbCard />
       <Help />
+    </div>
+  );
+}
+
+/** Android phones by USB cable (adb). */
+function UsbCard() {
+  const hub = useHub();
+  const [busy, setBusy] = useState(false);
+  if (!hub) return null;
+  const u = hub.usb;
+  const setUp = async () => {
+    setBusy(true);
+    try {
+      await api.usbSetup();
+      await refreshHub();
+    } catch (e) {
+      toastError(e);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="card">
+      <div className="card-head">
+        <h2>Android by USB cable</h2>
+        {u.setup === "ready" && (
+          <button className="link" onClick={() => void api.usbOff().then(refreshHub).catch(toastError)}>
+            Turn off
+          </button>
+        )}
+      </div>
+      {u.setup !== "ready" ? (
+        <>
+          <p className="muted small">
+            Faster and steadier than Wi-Fi. Uses Google's Android tools (adb); if they aren't on this computer, DeskSpan downloads them
+            once from Google (about 10–16 MB).
+          </p>
+          {u.error && <p className="error-text small">{u.error}</p>}
+          <button className="primary" disabled={busy || u.setup === "preparing"} onClick={() => void setUp()}>
+            {u.setup === "preparing" || busy ? "Setting up…" : "Set up USB cable"}
+          </button>
+        </>
+      ) : u.phones.length === 0 ? (
+        <p className="muted small">
+          Plug the phone in. Once only, on the phone: Settings › About phone › Software information › tap <b>Build number</b> 7 times, then
+          Settings › Developer options › turn on <b>USB debugging</b>. DeskSpan then opens itself on the phone.
+        </p>
+      ) : (
+        u.phones.map((p) => (
+          <div key={p.serial} className="list-row">
+            <div>
+              <div>{p.model}</div>
+              <div className="device-meta">
+                {p.state === "ready"
+                  ? "Connected by cable · DeskSpan opens on the phone"
+                  : p.state === "allow"
+                    ? "Tap Allow on the phone (USB debugging)"
+                    : "Not responding: unplug and plug in again"}
+              </div>
+            </div>
+          </div>
+        ))
+      )}
     </div>
   );
 }

@@ -24,6 +24,8 @@ pub struct Join {
     pub name: String,
     pub screen: Option<ScreenInfo>,
     pub extend: bool,
+    /// Connected by USB cable: the picture goes over the cable too.
+    pub usb: bool,
 }
 
 /// Start listening for receivers; runs for the life of the app.
@@ -126,7 +128,7 @@ async fn serve(
 
     let mut tries = 0u32;
     loop {
-        match peer::run(&hub, session, &mut signals, &video).await {
+        match peer::run(&hub, session, &mut signals, &video, join.usb).await {
             Ended::Left => break,
             Ended::Fatal(why) => {
                 tracing::warn!("session {session}: {why}");
