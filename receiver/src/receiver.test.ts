@@ -33,6 +33,8 @@ describe("protocol", () => {
     expect(parseInbound('{"t":"welcome","id":"a","host":"pc"}')).toBeNull();
     expect(parseInbound('{"t":"wrong-code","left":"3"}')).toBeNull();
     expect(parseInbound('{"t":"steal-keys"}')).toBeNull();
+    expect(parseInbound('{"t":"notice","text":"No encoder"}')).toEqual({ t: "notice", text: "No encoder" });
+    expect(parseInbound('{"t":"notice"}')).toBeNull();
     expect(parseInbound("not json")).toBeNull();
     expect(parseInbound("null")).toBeNull();
   });

@@ -186,6 +186,10 @@ async function onMessage(raw: string) {
         console.warn("ice", e);
       }
       break;
+    case "notice":
+      // E.g. why there's no picture; shown until the picture arrives.
+      if (!document.body.classList.contains("live")) show("message", "No picture yet", m.text, true);
+      break;
     case "bye":
       leaving = true;
       closePeer();
