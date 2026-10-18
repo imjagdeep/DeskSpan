@@ -911,12 +911,7 @@ mod tests {
         ] {
             assert!(is_private_lan(ok.parse().unwrap()), "{ok}");
         }
-        for no in [
-            "100.78.249.4",
-            "172.32.0.1",
-            "8.8.8.8",
-            "127.0.0.1",
-        ] {
+        for no in ["100.78.249.4", "172.32.0.1", "8.8.8.8", "127.0.0.1"] {
             assert!(!is_private_lan(no.parse().unwrap()), "{no}");
         }
     }

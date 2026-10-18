@@ -12,15 +12,15 @@
 //! created and released there (`run_on_main_thread`) and kept in a
 //! main-thread map keyed by display ID.
 
+use crate::media::DisplayPlan;
+use objc2::msg_send;
 use objc2::rc::{Allocated, Retained};
 use objc2::runtime::{AnyClass, AnyObject};
-use objc2::msg_send;
 use objc2_foundation::{NSArray, NSSize, NSString};
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::sync::mpsc;
 use std::time::Duration;
-use crate::media::DisplayPlan;
 use tauri::AppHandle;
 
 thread_local! {
@@ -72,7 +72,8 @@ unsafe fn create_here(name: &str, serial: u32, plan: DisplayPlan) -> Result<u32,
     let px_w = plan.points_w * plan.scale;
     let px_h = plan.points_h * plan.scale;
     let desc: Retained<AnyObject> = msg_send![desc_cls, new];
-    let queue = dispatch2::DispatchQueue::main() as *const dispatch2::DispatchQueue as *const AnyObject;
+    let queue =
+        dispatch2::DispatchQueue::main() as *const dispatch2::DispatchQueue as *const AnyObject;
     let _: () = msg_send![&*desc, setDispatchQueue: queue];
     let ns_name = NSString::from_str(name);
     let _: () = msg_send![&*desc, setName: &*ns_name];
@@ -127,4 +128,3 @@ unsafe fn create_here(name: &str, serial: u32, plan: DisplayPlan) -> Result<u32,
     DISPLAYS.with(|d| d.borrow_mut().insert(id, display));
     Ok(id)
 }
-

@@ -157,7 +157,11 @@ impl DisplayPlan {
     /// half their pixels in points, so text is the size it would be on a
     /// Retina screen; plain monitors get their pixels 1:1.
     pub fn for_screen(css_w: u32, css_h: u32, dpr: f64) -> DisplayPlan {
-        let dpr = if dpr.is_finite() && dpr > 0.0 { dpr } else { 1.0 };
+        let dpr = if dpr.is_finite() && dpr > 0.0 {
+            dpr
+        } else {
+            1.0
+        };
         let px_w = ((css_w as f64 * dpr).round() as u32).clamp(640, 7680);
         let px_h = ((css_h as f64 * dpr).round() as u32).clamp(480, 4320);
         let scale = if dpr >= 1.5 { 2 } else { 1 };
