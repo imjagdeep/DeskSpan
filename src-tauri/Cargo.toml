@@ -57,6 +57,8 @@ objc2-foundation = "0.3"
 objc2-core-foundation = "0.3"
 objc2-core-graphics = "0.3"
 objc2-screen-capture-kit = "0.3"
+# The main dispatch queue for virtual displays (vdisplay.rs).
+dispatch2 = "0.3"
 block2 = "0.6"
 
 [dev-dependencies]

@@ -66,6 +66,8 @@ export interface Device {
   added: number;
   last_seen: number;
   control: boolean;
+  /** Extend (its own extra display) or mirror the main screen */
+  extend: boolean;
 }
 
 export type LabToolId = "deskzero" | "deskmedic" | "deskfolio" | "deskshot" | "deskspan";
@@ -91,6 +93,8 @@ export const api = {
   devices: () => invoke<Device[]>("devices_list"),
   removeDevice: (id: string) => invoke<void>("device_remove", { id }),
   setControl: (id: string, control: boolean) => invoke<void>("device_set_control", { id, control }),
+  /** Used the next time the device connects. */
+  setExtend: (id: string, extend: boolean) => invoke<void>("device_set_extend", { id, extend }),
   renameDevice: (id: string, name: string) => invoke<void>("device_rename", { id, name }),
 
   openLink: (id: "site" | "repo" | "issues" | "releases" | "developer" | "screen-permission" | LabToolId) =>

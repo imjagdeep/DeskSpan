@@ -15,6 +15,8 @@ mod secret;
 mod server;
 mod settings;
 mod tray;
+#[cfg(target_os = "macos")]
+mod vdisplay;
 mod video;
 
 use server::{Decision, Hub};
@@ -157,6 +159,12 @@ fn device_remove(hub: State<'_, Arc<Hub>>, id: String) -> CmdResult<()> {
 #[tauri::command]
 fn device_set_control(hub: State<'_, Arc<Hub>>, id: String, control: bool) -> CmdResult<()> {
     hub.set_control(&id, control)
+}
+
+/// Extend (its own extra display) or mirror; used at its next connection.
+#[tauri::command]
+fn device_set_extend(hub: State<'_, Arc<Hub>>, id: String, extend: bool) -> CmdResult<()> {
+    hub.set_extend(&id, extend)
 }
 
 #[tauri::command]
@@ -333,7 +341,12 @@ pub fn run() {
             let start_now = settings.start_on_launch;
             let hub = Hub::new(app.handle().clone(), &data_dir);
             let video = video::Video::new(data_dir.clone());
-            media::start(hub.clone(), video.clone());
+            media::start(
+                app.handle().clone(),
+                hub.clone(),
+                video.clone(),
+                data_dir.clone(),
+            );
             app.manage(hub);
             app.manage(video);
             app.manage(AppState {
@@ -379,6 +392,7 @@ pub fn run() {
             devices_list,
             device_remove,
             device_set_control,
+            device_set_extend,
             device_rename,
             open_link,
             desklab_tools,

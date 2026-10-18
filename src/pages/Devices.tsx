@@ -38,6 +38,16 @@ export function Devices() {
     }
   };
 
+  const setExtend = async (d: Device, extend: boolean) => {
+    try {
+      await api.setExtend(d.id, extend);
+      await load();
+      if (online.has(d.id)) toast(`${d.name} switches to ${extend ? "extend" : "mirror"} the next time it connects.`);
+    } catch (e) {
+      toastError(e);
+    }
+  };
+
   const setControl = async (d: Device, on: boolean) => {
     try {
       await api.setControl(d.id, on);
@@ -85,6 +95,22 @@ export function Devices() {
                 </div>
               </div>
               <div className="actions">
+                <div className="segmented small" role="group" aria-label={`${d.name}: extend or mirror`}>
+                  <button
+                    className={d.extend ? "active" : ""}
+                    title="Its own extra display: drag windows onto it"
+                    onClick={() => void setExtend(d, true)}
+                  >
+                    Extend
+                  </button>
+                  <button
+                    className={d.extend ? "" : "active"}
+                    title="Shows the same picture as the main screen"
+                    onClick={() => void setExtend(d, false)}
+                  >
+                    Mirror
+                  </button>
+                </div>
                 <label className="toggle" title="Touch, pen and mouse on the device act on this computer">
                   <input type="checkbox" checked={d.control} onChange={(e) => void setControl(d, e.target.checked)} />
                   <span>Can control</span>
