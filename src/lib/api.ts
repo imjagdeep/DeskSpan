@@ -109,6 +109,9 @@ export const api = {
   /** Android by USB cable: find or download Google's adb, then watch the cable. */
   usbSetup: () => invoke<void>("usb_setup"),
   usbOff: () => invoke<void>("usb_off"),
+  /** Windows: the virtual display driver for extending. */
+  extendDriverStatus: () => invoke<"installed" | "missing" | "not-needed">("extend_driver_status"),
+  installExtendDriver: () => invoke<void>("install_extend_driver"),
   answerRequest: (id: string, allow: boolean, control: boolean) => invoke<void>("answer_request", { id, allow, control }),
 
   devices: () => invoke<Device[]>("devices_list"),

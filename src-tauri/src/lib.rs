@@ -21,6 +21,8 @@ mod tray;
 #[cfg(target_os = "macos")]
 mod vdisplay;
 mod video;
+#[cfg(windows)]
+mod winvdd;
 
 use server::{Decision, Hub};
 use settings::Settings;
@@ -130,6 +132,38 @@ fn hub_status(hub: State<'_, Arc<Hub>>) -> server::Status {
 #[tauri::command]
 fn video_status(video: State<'_, video::Video>) -> video::VideoStatus {
     video.status()
+}
+
+/// Windows: is the extend display driver installed? (Always "n/a" elsewhere.)
+#[tauri::command]
+fn extend_driver_status() -> &'static str {
+    #[cfg(windows)]
+    {
+        if winvdd::installed() {
+            "installed"
+        } else {
+            "missing"
+        }
+    }
+    #[cfg(not(windows))]
+    {
+        "not-needed"
+    }
+}
+
+/// Windows: install the extend display driver (one administrator prompt).
+#[tauri::command]
+async fn install_extend_driver() -> CmdResult<()> {
+    #[cfg(windows)]
+    {
+        tauri::async_runtime::spawn_blocking(winvdd::install)
+            .await
+            .map_err(|e| format!("cannot run the installer: {e}"))?
+    }
+    #[cfg(not(windows))]
+    {
+        Ok(())
+    }
 }
 
 /// Android phones by USB cable: find or download adb, remember it's on.
@@ -423,6 +457,8 @@ pub fn run() {
             video_status,
             new_pairing,
             usb_setup,
+            extend_driver_status,
+            install_extend_driver,
             usb_off,
             answer_request,
             devices_list,

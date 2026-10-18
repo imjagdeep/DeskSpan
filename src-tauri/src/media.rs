@@ -221,14 +221,41 @@ async fn extend_display(
         .map_err(|e| format!("cannot make the extra display: {e}"))?
 }
 
-#[cfg(not(target_os = "macos"))]
+/// Windows: the bundled Virtual Display Driver (winvdd.rs); one extended
+/// device at a time for now.
+#[cfg(windows)]
+async fn extend_display(
+    _app: &AppHandle,
+    _name: String,
+    _serial: u32,
+    plan: DisplayPlan,
+) -> Result<u32, String> {
+    use std::sync::atomic::Ordering;
+    if WIN_EXTENDED.swap(true, Ordering::AcqRel) {
+        return Err("on Windows one device can extend at a time".into());
+    }
+    let made = tauri::async_runtime::spawn_blocking(move || crate::winvdd::create(plan))
+        .await
+        .map_err(|e| format!("cannot make the extra monitor: {e}"))
+        .and_then(|r| r);
+    if made.is_err() {
+        WIN_EXTENDED.store(false, Ordering::Release);
+    }
+    made
+}
+
+/// An extend device has the Windows virtual monitor.
+#[cfg(windows)]
+static WIN_EXTENDED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+#[cfg(not(any(target_os = "macos", windows)))]
 async fn extend_display(
     _app: &AppHandle,
     _name: String,
     _serial: u32,
     _plan: DisplayPlan,
 ) -> Result<u32, String> {
-    // Windows (bundled display driver) and Linux come next.
+    // Linux comes later.
     Err("extending isn't available on this computer yet".into())
 }
 
@@ -237,7 +264,13 @@ fn remove_display(app: &AppHandle, id: u32) {
     crate::vdisplay::remove(app, id);
 }
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(windows)]
+fn remove_display(_app: &AppHandle, _id: u32) {
+    crate::winvdd::remove();
+    WIN_EXTENDED.store(false, std::sync::atomic::Ordering::Release);
+}
+
+#[cfg(not(any(target_os = "macos", windows)))]
 fn remove_display(_app: &AppHandle, _id: u32) {}
 
 #[cfg(target_os = "macos")]

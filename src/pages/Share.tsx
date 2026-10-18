@@ -129,8 +129,44 @@ export function Share() {
           ))
         )}
       </div>
+      <ExtendDriverCard />
       <UsbCard />
       <Help />
+    </div>
+  );
+}
+
+/** Windows: extending needs the virtual display driver, installed once. */
+function ExtendDriverCard() {
+  const [status, setStatus] = useState<"installed" | "missing" | "not-needed" | null>(null);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    api.extendDriverStatus().then(setStatus).catch(() => setStatus(null));
+  }, []);
+  if (status !== "missing") return null;
+  const install = async () => {
+    setBusy(true);
+    try {
+      await api.installExtendDriver();
+      setStatus(await api.extendDriverStatus());
+      toast("Display driver installed: devices set to Extend get their own monitor");
+    } catch (e) {
+      toastError(e);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="card">
+      <h2>Extend on Windows</h2>
+      <p className="muted small">
+        To use a device as an extra monitor (not just a copy), Windows needs a display driver: the open-source Virtual Display Driver, signed
+        by the SignPath Foundation. DeskSpan downloads it from GitHub, checks it, and installs it. Windows asks for administrator permission
+        once.
+      </p>
+      <button className="primary" disabled={busy} onClick={() => void install()}>
+        {busy ? "Installing… (accept the Windows prompt)" : "Install display driver"}
+      </button>
     </div>
   );
 }
