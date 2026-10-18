@@ -20,6 +20,9 @@ const barHost = $<HTMLElement>("bar-host");
 const soundBtn = $<HTMLButtonElement>("sound");
 const fullBtn = $<HTMLButtonElement>("full");
 const leaveBtn = $<HTMLButtonElement>("leave");
+const fsPrompt = $<HTMLElement>("fs-prompt");
+const fsGo = $<HTMLButtonElement>("fs-go");
+const fsSkip = $<HTMLButtonElement>("fs-skip");
 
 // ---------- saved device (browser storage; may be unavailable) ----------
 
@@ -67,6 +70,8 @@ type View = "connecting" | "code" | "wait" | "message" | "live";
 
 function show(view: View, heading = "", body = "", canRetry = false) {
   const live = view === "live";
+  if (live && !document.body.classList.contains("live")) offerFullScreen();
+  if (!live) fsPrompt.hidden = true;
   document.body.classList.toggle("live", live);
   panel.hidden = live;
   codeForm.hidden = view !== "code";
@@ -282,11 +287,45 @@ soundBtn.addEventListener("click", () => {
   void video.play().catch(() => undefined);
 });
 
-fullBtn.addEventListener("click", () => {
-  const el = document.documentElement as HTMLElement & { webkitRequestFullscreen?: () => void };
-  if (document.fullscreenElement) void document.exitFullscreen().catch(() => undefined);
-  else if (el.requestFullscreen) void el.requestFullscreen().catch(() => undefined);
+// ---------- full screen ----------
+
+type FsElement = HTMLElement & { webkitRequestFullscreen?: () => void };
+const canFullScreen = () => {
+  const el = document.documentElement as FsElement;
+  return !!(el.requestFullscreen || el.webkitRequestFullscreen);
+};
+const inFullScreen = () =>
+  !!document.fullscreenElement || window.matchMedia("(display-mode: fullscreen), (display-mode: standalone)").matches;
+
+function enterFullScreen() {
+  const el = document.documentElement as FsElement;
+  if (el.requestFullscreen) void el.requestFullscreen({ navigationUI: "hide" }).catch(() => undefined);
   else el.webkitRequestFullscreen?.();
+}
+
+/** Browsers only go full screen after a tap, so offer a big button. */
+let fsSkipped = false;
+function offerFullScreen() {
+  fsPrompt.hidden = fsSkipped || !canFullScreen() || inFullScreen();
+}
+
+fsGo.addEventListener("click", () => {
+  fsPrompt.hidden = true;
+  enterFullScreen();
+});
+fsSkip.addEventListener("click", () => {
+  fsSkipped = true;
+  fsPrompt.hidden = true;
+});
+fsPrompt.addEventListener("pointerdown", (e) => e.stopPropagation());
+// Left full screen (swipe, back button): offer it again.
+document.addEventListener("fullscreenchange", () => {
+  if (document.body.classList.contains("live") && !document.fullscreenElement) offerFullScreen();
+});
+
+fullBtn.addEventListener("click", () => {
+  if (document.fullscreenElement) void document.exitFullscreen().catch(() => undefined);
+  else enterFullScreen();
 });
 
 // The toolbar shows on a three-finger tap or a mouse move to the top edge,

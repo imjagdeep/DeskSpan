@@ -167,6 +167,8 @@ pub enum MediaEvent {
     Left { session: u64 },
     /// Its answer or ICE candidate.
     Signal { session: u64, msg: Inbound },
+    /// Its screen changed size (full screen, rotated).
+    Resized { session: u64, screen: ScreenInfo },
 }
 
 struct Inner {
@@ -867,6 +869,11 @@ async fn receiver(hub: Arc<Hub>, socket: WebSocket, addr: SocketAddr) {
                     s.screen = Some(ScreenInfo { w, h, dpr });
                 }
                 hub.changed();
+                // An extend receiver's display follows its screen.
+                hub.media(MediaEvent::Resized {
+                    session,
+                    screen: ScreenInfo { w, h, dpr },
+                });
             }
             Inbound::Hello { .. } => {}
             msg => hub.media(MediaEvent::Signal { session, msg }),

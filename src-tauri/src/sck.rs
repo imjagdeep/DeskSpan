@@ -40,7 +40,8 @@ pub fn capture_display(display_id: u32, w: u32, h: u32) -> Result<Rgba, String> 
     unsafe {
         config.setWidth(w as usize);
         config.setHeight(h as usize);
-        config.setShowsCursor(false);
+        // A screen for someone to work on: the cursor belongs in it.
+        config.setShowsCursor(true);
     }
 
     let (tx, rx) = mpsc::channel::<Result<Rgba, String>>();

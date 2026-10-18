@@ -51,6 +51,29 @@ pub fn create(app: &AppHandle, name: &str, serial: u32, plan: DisplayPlan) -> Re
     Ok(id)
 }
 
+/// The descriptor's pixel ceiling per side (8K).
+const MAX_PIXELS: u32 = 8192;
+
+/// Give a display a new size (the receiver went full screen or rotated).
+pub fn resize(app: &AppHandle, id: u32, plan: DisplayPlan) {
+    let done = app.run_on_main_thread(move || {
+        let found = DISPLAYS.with(|d| d.borrow().get(&id).cloned());
+        let Some(display) = found else { return };
+        match unsafe { apply(&display, plan) } {
+            Ok(()) => tracing::info!(
+                "virtual display {id} now {}x{} points @{}x",
+                plan.points_w,
+                plan.points_h,
+                plan.scale
+            ),
+            Err(e) => tracing::warn!("cannot resize virtual display {id}: {e}"),
+        }
+    });
+    if let Err(e) = done {
+        tracing::warn!("cannot resize virtual display {id}: {e}");
+    }
+}
+
 /// Remove a display (windows on it move back to the other screens).
 pub fn remove(app: &AppHandle, id: u32) {
     let done = app.run_on_main_thread(move || {
@@ -61,13 +84,39 @@ pub fn remove(app: &AppHandle, id: u32) {
     }
 }
 
+/// Main thread only: set the display's one mode (size, HiDPI or not).
+unsafe fn apply(display: &AnyObject, plan: DisplayPlan) -> Result<(), String> {
+    let missing = || "this Mac can't size the extra display (macOS changed it)".to_string();
+    let set_cls = AnyClass::get(c"CGVirtualDisplaySettings").ok_or_else(missing)?;
+    let mode_cls = AnyClass::get(c"CGVirtualDisplayMode").ok_or_else(missing)?;
+    let settings: Retained<AnyObject> = msg_send![set_cls, new];
+    let _: () = msg_send![&*settings, setHiDPI: u32::from(plan.scale == 2)];
+    let mode_alloc: Allocated<AnyObject> = msg_send![mode_cls, alloc];
+    let mode: Option<Retained<AnyObject>> = msg_send![
+        mode_alloc,
+        initWithWidth: plan.points_w as usize,
+        height: plan.points_h as usize,
+        refreshRate: 60.0f64
+    ];
+    let mode = mode.ok_or("macOS refused the display size")?;
+    let modes = NSArray::from_retained_slice(&[mode]);
+    let _: () = msg_send![&*settings, setModes: &*modes];
+    let ok: bool = msg_send![display, applySettings: &*settings];
+    if ok {
+        Ok(())
+    } else {
+        Err(format!(
+            "macOS refused a {}×{} display",
+            plan.points_w, plan.points_h
+        ))
+    }
+}
+
 /// Main thread only.
 unsafe fn create_here(name: &str, serial: u32, plan: DisplayPlan) -> Result<u32, String> {
     let missing = || "this Mac can't make an extra display (macOS changed it)".to_string();
     let desc_cls = AnyClass::get(c"CGVirtualDisplayDescriptor").ok_or_else(missing)?;
     let disp_cls = AnyClass::get(c"CGVirtualDisplay").ok_or_else(missing)?;
-    let set_cls = AnyClass::get(c"CGVirtualDisplaySettings").ok_or_else(missing)?;
-    let mode_cls = AnyClass::get(c"CGVirtualDisplayMode").ok_or_else(missing)?;
 
     let px_w = plan.points_w * plan.scale;
     let px_h = plan.points_h * plan.scale;
@@ -77,8 +126,10 @@ unsafe fn create_here(name: &str, serial: u32, plan: DisplayPlan) -> Result<u32,
     let _: () = msg_send![&*desc, setDispatchQueue: queue];
     let ns_name = NSString::from_str(name);
     let _: () = msg_send![&*desc, setName: &*ns_name];
-    // Room for both orientations, so a rotation can reuse the display later.
-    let max = px_w.max(px_h);
+    // The largest it may ever become: room for both orientations and for
+    // full screen or a bigger device, so `resize` can reuse the display
+    // (the descriptor's ceiling can't change later).
+    let max = px_w.max(px_h).max(MAX_PIXELS);
     let _: () = msg_send![&*desc, setMaxPixelsWide: max];
     let _: () = msg_send![&*desc, setMaxPixelsHigh: max];
     // A plausible physical size (about 110 points per inch).
@@ -96,25 +147,7 @@ unsafe fn create_here(name: &str, serial: u32, plan: DisplayPlan) -> Result<u32,
     let display: Option<Retained<AnyObject>> = msg_send![alloc, initWithDescriptor: &*desc];
     let display = display.ok_or("macOS refused to create the extra display")?;
 
-    let settings: Retained<AnyObject> = msg_send![set_cls, new];
-    let _: () = msg_send![&*settings, setHiDPI: u32::from(plan.scale == 2)];
-    let mode_alloc: Allocated<AnyObject> = msg_send![mode_cls, alloc];
-    let mode: Option<Retained<AnyObject>> = msg_send![
-        mode_alloc,
-        initWithWidth: plan.points_w as usize,
-        height: plan.points_h as usize,
-        refreshRate: 60.0f64
-    ];
-    let mode = mode.ok_or("macOS refused the display size")?;
-    let modes = NSArray::from_retained_slice(&[mode]);
-    let _: () = msg_send![&*settings, setModes: &*modes];
-    let ok: bool = msg_send![&*display, applySettings: &*settings];
-    if !ok {
-        return Err(format!(
-            "macOS refused a {}×{} display",
-            plan.points_w, plan.points_h
-        ));
-    }
+    apply(&display, plan)?;
     let id: u32 = msg_send![&*display, displayID];
     if id == 0 {
         return Err("macOS gave the extra display no ID".into());
