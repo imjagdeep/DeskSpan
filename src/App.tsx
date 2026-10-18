@@ -36,9 +36,15 @@ export default function App() {
       const target = PAGES.find((p) => p.page === e.payload);
       if (target) setPageRaw(target.page);
     });
+    // DeskLab Link: files from a phone landed in Downloads.
+    const unFiles = listen<[string, number]>("files-received", (e) => {
+      const [from, count] = e.payload;
+      toast(`${count === 1 ? "1 file" : `${count} files`} from ${from} · in Downloads`);
+    });
     return () => {
       unHub();
       void unNav.then((f) => f());
+      void unFiles.then((f) => f());
     };
   }, []);
 

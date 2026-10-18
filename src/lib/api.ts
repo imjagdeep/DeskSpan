@@ -31,6 +31,8 @@ export interface SessionView {
   /** Unix seconds */
   since: number;
   screen: ScreenInfo | null;
+  /** Using this computer's screen (not just connected) */
+  screen_on: boolean;
 }
 
 export interface RequestView {

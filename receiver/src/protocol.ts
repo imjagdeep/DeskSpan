@@ -20,7 +20,12 @@ export type Outbound =
   | { t: "hello"; name: string; screen: ScreenInfo; auth: Auth }
   | { t: "answer"; sdp: string }
   | { t: "ice"; c: RTCIceCandidateInit }
-  | ({ t: "screen" } & ScreenInfo);
+  | ({ t: "screen" } & ScreenInfo)
+  /** "Use as screen" / back to the home page */
+  | { t: "screen-start" }
+  | { t: "screen-stop" }
+  /** A batch of files went to /api/send. */
+  | { t: "sent"; count: number };
 
 /** Computer → receiver */
 export type Inbound =

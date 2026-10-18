@@ -166,6 +166,75 @@ button.primary {
   white-space: nowrap;
 }
 
+/* Home and Send: big, easy tiles. */
+.home,
+.send {
+  display: grid;
+  gap: 10px;
+  width: min(100%, 24rem);
+  margin-top: 14px;
+}
+
+.tile {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  width: 100%;
+  padding: 16px 18px;
+  border-radius: 16px;
+  border: 1px solid var(--line);
+  background: var(--card);
+  color: var(--text);
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+}
+
+.tile strong {
+  font-size: 1.05rem;
+}
+
+.tile span {
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.send-list {
+  list-style: none;
+  margin: 4px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+  text-align: left;
+}
+
+.send-list li {
+  display: grid;
+  gap: 4px;
+  font-size: 0.9rem;
+}
+
+.send-list .name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.send-list progress {
+  width: 100%;
+  height: 6px;
+  accent-color: var(--accent);
+}
+
+.send-list .done {
+  color: var(--muted);
+}
+
+.send-list .failed {
+  color: var(--danger);
+}
+
 /* Offered when the picture starts: the browser bars waste the screen. */
 .fs-prompt {
   position: fixed;

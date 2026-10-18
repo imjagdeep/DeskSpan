@@ -28,6 +28,32 @@
         <button type="submit" class="primary">Connect</button>
       </form>
 
+      <div id="home" class="home" hidden>
+        <button id="go-screen" type="button" class="tile">
+          <strong>Use as screen</strong>
+          <span>An extra display (or a copy) of the computer</span>
+        </button>
+        <button id="go-send" type="button" class="tile">
+          <strong>Send files</strong>
+          <span>Photos and files, straight to its Downloads</span>
+        </button>
+      </div>
+
+      <div id="send" class="send" hidden>
+        <label class="tile">
+          <strong>Choose files</strong>
+          <span>Photos, videos, documents…</span>
+          <input id="files" type="file" multiple hidden />
+        </label>
+        <label class="tile">
+          <strong>Take a photo</strong>
+          <span>With this device's camera</span>
+          <input id="camera" type="file" accept="image/*" capture="environment" hidden />
+        </label>
+        <ul id="send-list" class="send-list"></ul>
+        <button id="send-back" type="button" class="link">Back</button>
+      </div>
+
       <div id="actions" class="actions" hidden>
         <button id="retry" type="button" class="primary">Try again</button>
       </div>
@@ -42,6 +68,7 @@
       <span id="bar-host" class="bar-host"></span>
       <button id="sound" type="button">Sound on</button>
       <button id="full" type="button">Full screen</button>
+      <button id="home-btn" type="button">Home</button>
       <button id="leave" type="button">Disconnect</button>
     </div>
 

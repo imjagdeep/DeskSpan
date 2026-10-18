@@ -115,7 +115,10 @@ export function Share() {
           hub.sessions.map((s) => (
             <div key={s.session} className="list-row">
               <div>
-                <div>{s.name}</div>
+                <div>
+                  {s.name}
+                  <span className={s.screen_on ? "badge" : "badge muted-badge"}>{s.screen_on ? "Screen" : "Connected"}</span>
+                </div>
                 <div className="device-meta">
                   {s.address}
                   {s.screen ? ` · ${Math.round(s.screen.w * s.screen.dpr)}×${Math.round(s.screen.h * s.screen.dpr)}` : ""} · since {since(s.since)}

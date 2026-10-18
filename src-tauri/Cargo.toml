@@ -31,7 +31,7 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "std"] }
 # The local server the receivers talk to (server.rs): page, pairing, signalling.
 axum = { version = "0.8", default-features = false, features = ["http1", "tokio", "ws", "query"] }
-tokio = { version = "1", features = ["net", "sync", "time", "macros"] }
+tokio = { version = "1", features = ["net", "sync", "time", "macros", "fs", "io-util"] }
 futures-util = { version = "0.3", default-features = false, features = ["sink", "std"] }
 if-addrs = "0.15"
 qrcode = { version = "0.14", default-features = false, features = ["svg"] }
