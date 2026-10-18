@@ -11,6 +11,8 @@ mod media;
 mod peer;
 #[cfg(target_os = "macos")]
 mod sck;
+#[cfg(target_os = "macos")]
+mod scstream;
 mod secret;
 mod server;
 mod settings;
