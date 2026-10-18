@@ -50,6 +50,9 @@ struct Inner {
 
 #[derive(Clone)]
 pub struct Video {
+    /// The display to capture: None = the main screen (mirror), Some(id) =
+    /// that display (an extend receiver's virtual display).
+    target: Option<u32>,
     tx: broadcast::Sender<Arc<Frame>>,
     keyframe: Arc<AtomicBool>,
     running: Arc<AtomicBool>,
@@ -57,9 +60,20 @@ pub struct Video {
 }
 
 impl Video {
+    /// The main screen (mirror), shared by every mirroring receiver.
     pub fn new(data_dir: PathBuf) -> Video {
+        Video::for_target(data_dir, None)
+    }
+
+    /// One display by its ID (an extend receiver's own virtual display).
+    pub fn for_display(data_dir: PathBuf, display_id: u32) -> Video {
+        Video::for_target(data_dir, Some(display_id))
+    }
+
+    fn for_target(data_dir: PathBuf, target: Option<u32>) -> Video {
         let (tx, _) = broadcast::channel(4);
         Video {
+            target,
             tx,
             keyframe: Arc::new(AtomicBool::new(false)),
             running: Arc::new(AtomicBool::new(false)),
@@ -163,7 +177,7 @@ impl Video {
             .intra_frame_period(IntraFramePeriod::from_num_frames(FPS * 10));
         let mut encoder = Encoder::with_api_config(api, config)
             .map_err(|e| format!("the H.264 encoder didn't start: {e}"))?;
-        let monitor = main_monitor()?;
+        let monitor = monitor_for(self.target)?;
         self.set_state("streaming", None);
 
         let start = Instant::now();
@@ -248,16 +262,33 @@ fn grab(monitor: &xcap::Monitor) -> Result<(Vec<u8>, u32, u32), String> {
     Ok((shot.into_raw(), w, h))
 }
 
-/// The main screen (or the first one).
-fn main_monitor() -> Result<xcap::Monitor, String> {
-    let all = xcap::Monitor::all().map_err(|e| format!("cannot list the screens: {e}"))?;
-    let main = all
-        .iter()
-        .position(|m| m.is_primary().unwrap_or(false))
-        .unwrap_or(0);
-    all.into_iter()
-        .nth(main)
-        .ok_or_else(|| "no screen found".to_string())
+/// The screen to capture: the main one (or the first), or the display with
+/// this ID. A just-made virtual display can take a moment to be listed.
+fn monitor_for(target: Option<u32>) -> Result<xcap::Monitor, String> {
+    for attempt in 0..15 {
+        let all = xcap::Monitor::all().map_err(|e| format!("cannot list the screens: {e}"))?;
+        let found = match target {
+            None => all
+                .iter()
+                .position(|m| m.is_primary().unwrap_or(false))
+                .or(if all.is_empty() { None } else { Some(0) }),
+            Some(id) => all.iter().position(|m| m.id().ok() == Some(id)),
+        };
+        if let Some(i) = found {
+            return all
+                .into_iter()
+                .nth(i)
+                .ok_or_else(|| "no screen found".to_string());
+        }
+        if target.is_none() || attempt == 14 {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(200));
+    }
+    Err(match target {
+        None => "no screen found".to_string(),
+        Some(id) => format!("the extra display ({id}) didn't appear"),
+    })
 }
 
 /// RGBA pixels → I420 (BT.601, limited range), optionally shrunk by an

@@ -17,6 +17,13 @@ struct Stored {
     last_seen: u64,
     /// May send touch, pen, mouse and keys to this computer.
     control: bool,
+    /// Extend (its own extra display) or mirror the main screen.
+    #[serde(default = "yes")]
+    extend: bool,
+}
+
+fn yes() -> bool {
+    true
 }
 
 /// What the app's window shows (never the key).
@@ -27,6 +34,7 @@ pub struct Device {
     pub added: u64,
     pub last_seen: u64,
     pub control: bool,
+    pub extend: bool,
 }
 
 pub struct Devices {
@@ -74,6 +82,7 @@ impl Devices {
                 added: d.added,
                 last_seen: d.last_seen,
                 control: d.control,
+                extend: d.extend,
             })
             .collect()
     }
@@ -90,6 +99,7 @@ impl Devices {
             added: t,
             last_seen: t,
             control,
+            extend: true,
         });
         self.save()?;
         Ok((id, key))
@@ -109,6 +119,7 @@ impl Devices {
             added: d.added,
             last_seen: d.last_seen,
             control: d.control,
+            extend: d.extend,
         };
         if let Err(e) = self.save() {
             tracing::warn!("{e}");
@@ -128,6 +139,16 @@ impl Devices {
             .find(|d| d.id == id)
             .ok_or("that device is no longer in the list")?;
         d.control = control;
+        self.save()
+    }
+
+    pub fn set_extend(&mut self, id: &str, extend: bool) -> Result<(), String> {
+        let d = self
+            .list
+            .iter_mut()
+            .find(|d| d.id == id)
+            .ok_or("that device is no longer in the list")?;
+        d.extend = extend;
         self.save()
     }
 

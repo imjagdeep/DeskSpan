@@ -162,7 +162,7 @@ struct Running {
 #[derive(Debug)]
 pub enum MediaEvent {
     /// Let in and welcomed: offer it the picture.
-    Joined { session: u64 },
+    Joined(crate::media::Join),
     /// Gone (closed, removed, or sharing stopped).
     Left { session: u64 },
     /// Its answer or ICE candidate.
@@ -459,6 +459,13 @@ impl Hub {
         Ok(())
     }
 
+    /// Takes effect the next time the device connects.
+    pub fn set_extend(&self, id: &str, extend: bool) -> Result<(), String> {
+        self.lock().devices.set_extend(id, extend)?;
+        self.changed();
+        Ok(())
+    }
+
     pub fn rename_device(&self, id: &str, name: &str) -> Result<(), String> {
         self.lock().devices.rename(id, name)?;
         self.changed();
@@ -608,10 +615,15 @@ fn qr_svg(text: &str) -> Option<String> {
     }
 }
 
-/// Home/office network ranges; not Tailscale (100.64/10), not link-local.
+/// Home/office network ranges, plus link-local 169.254/16: a Thunderbolt or
+/// USB-C cable between two computers gives both such an address. Not
+/// Tailscale (100.64/10).
 pub fn is_private_lan(ip: Ipv4Addr) -> bool {
     let o = ip.octets();
-    o[0] == 10 || (o[0] == 172 && (16..=31).contains(&o[1])) || (o[0] == 192 && o[1] == 168)
+    o[0] == 10
+        || (o[0] == 172 && (16..=31).contains(&o[1]))
+        || (o[0] == 192 && o[1] == 168)
+        || (o[0] == 169 && o[1] == 254)
 }
 
 /// Where to listen: this computer's LAN addresses (+ loopback, for `adb
@@ -838,7 +850,13 @@ async fn receiver(hub: Arc<Hub>, socket: WebSocket, addr: SocketAddr) {
         host: &host,
         control: device.control,
     });
-    hub.media(MediaEvent::Joined { session });
+    hub.media(MediaEvent::Joined(crate::media::Join {
+        session,
+        device_id: device.id.clone(),
+        name: device.name.clone(),
+        screen,
+        extend: device.extend,
+    }));
     hub.changed();
 
     // 3. Signalling until the receiver goes.
@@ -884,14 +902,19 @@ mod tests {
 
     #[test]
     fn only_lan_ranges_are_private() {
-        for ok in ["10.1.2.3", "172.16.0.1", "172.31.255.1", "192.168.1.67"] {
+        for ok in [
+            "10.1.2.3",
+            "172.16.0.1",
+            "172.31.255.1",
+            "192.168.1.67",
+            "169.254.3.9",
+        ] {
             assert!(is_private_lan(ok.parse().unwrap()), "{ok}");
         }
         for no in [
             "100.78.249.4",
             "172.32.0.1",
             "8.8.8.8",
-            "169.254.1.1",
             "127.0.0.1",
         ] {
             assert!(!is_private_lan(no.parse().unwrap()), "{no}");
