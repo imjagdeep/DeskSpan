@@ -6,6 +6,13 @@ import { toScreen } from "./geometry";
 import { guessDeviceName, parseInbound, type Auth, type InputEvent, type Outbound, type ScreenInfo } from "./protocol";
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
+
+// The computer to talk to: the page's own server, or (in the DeskSpan Screen
+// app, whose page is local) the address it was opened with: ?host=ip:port.
+const HOST = (() => {
+  const h = new URLSearchParams(location.search).get("host");
+  return h && /^[\w.:[\]-]+$/.test(h) ? h : location.host;
+})();
 const video = $<HTMLVideoElement>("screen");
 const panel = $<HTMLElement>("panel");
 const title = $<HTMLElement>("title");
@@ -40,7 +47,8 @@ interface Saved {
   key?: string;
   name?: string;
 }
-const STORE = "deskspan-device";
+// One pairing per computer: the app talks to several from one origin.
+const STORE = HOST === location.host ? "deskspan-device" : `deskspan-device@${HOST}`;
 
 function loadSaved(): Saved {
   try {
@@ -110,7 +118,7 @@ let host = "the computer";
 let creds: { id: string; key: string } | null = saved.id && saved.key ? { id: saved.id, key: saved.key } : null;
 
 // The screen comes back by itself after a reconnect if it was in use.
-const AUTO_SCREEN = "deskspan-auto-screen";
+const AUTO_SCREEN = HOST === location.host ? "deskspan-auto-screen" : `deskspan-auto-screen@${HOST}`;
 function autoScreen(): boolean {
   try {
     return localStorage.getItem(AUTO_SCREEN) === "1";
@@ -169,7 +177,7 @@ function connect() {
     return;
   }
   show("connecting", "Connecting…", "");
-  const url = `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws`;
+  const url = `${location.protocol === "https:" ? "wss" : "ws"}://${HOST}/ws`;
   const sock = new WebSocket(url);
   ws = sock;
   sock.onopen = () => {
@@ -341,7 +349,7 @@ function upload(file: File, bar: HTMLProgressElement): Promise<string> {
       return;
     }
     const xhr = new XMLHttpRequest();
-    xhr.open("POST", `/api/send?name=${encodeURIComponent(file.name || "photo.jpg")}`);
+    xhr.open("POST", `http://${HOST}/api/send?name=${encodeURIComponent(file.name || "photo.jpg")}`);
     xhr.setRequestHeader("X-DeskSpan-Device", creds.id);
     xhr.setRequestHeader("X-DeskSpan-Key", creds.key);
     xhr.upload.onprogress = (e) => {

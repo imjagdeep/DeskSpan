@@ -1,0 +1,51 @@
+name: Mobile
+
+# DeskSpan Screen (mobile/): Android test APK + iOS simulator build.
+# App Store / Play releases come later (signing).
+on:
+  workflow_dispatch:
+  pull_request:
+    paths: ["mobile/**", "receiver/**", ".github/workflows/mobile.yml"]
+
+jobs:
+  android:
+    runs-on: ubuntu-24.04
+    defaults: { run: { working-directory: mobile } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: 17 }
+      - uses: dtolnay/rust-toolchain@stable
+        with: { targets: aarch64-linux-android,armv7-linux-androideabi,x86_64-linux-android }
+      - uses: Swatinem/rust-cache@v2
+        with: { workspaces: mobile/src-tauri }
+      - run: npm ci || npm install
+      - name: Android project
+        env: { NDK_HOME: "${{ env.ANDROID_NDK_LATEST_HOME }}" }
+        run: npx tauri android init --ci
+      - name: Build APK (debug-signed, installable for testing)
+        env: { NDK_HOME: "${{ env.ANDROID_NDK_LATEST_HOME }}" }
+        run: npx tauri android build --apk --debug --target aarch64
+      - uses: actions/upload-artifact@v4
+        with:
+          name: deskspan-screen-android-${{ github.sha }}
+          path: mobile/src-tauri/gen/android/app/build/outputs/apk/**/*.apk
+
+  ios:
+    runs-on: macos-15
+    defaults: { run: { working-directory: mobile } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - uses: dtolnay/rust-toolchain@stable
+        with: { targets: aarch64-apple-ios,aarch64-apple-ios-sim }
+      - uses: Swatinem/rust-cache@v2
+        with: { workspaces: mobile/src-tauri }
+      - run: npm ci || npm install
+      - name: iOS project
+        run: npx tauri ios init --ci
+      - name: Build for the simulator (no signing needed)
+        run: npx tauri ios build --debug --target aarch64-sim

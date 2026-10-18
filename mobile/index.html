@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#0b0b0d" />
+    <title>DeskSpan Screen</title>
+  </head>
+  <body>
+    <main class="panel">
+      <img class="logo" src="/favicon.png" alt="" width="72" height="72" />
+      <h1>Connect to your computer</h1>
+      <p class="muted">Open DeskSpan on the computer and press Start sharing.</p>
+
+      <div class="home">
+        <button id="scan" type="button" class="tile">
+          <strong>Scan the QR code</strong>
+          <span>Shown in DeskSpan on the computer</span>
+        </button>
+        <form id="manual" class="tile manual">
+          <strong>Or type its address</strong>
+          <input id="address" inputmode="url" autocomplete="off" autocapitalize="off" placeholder="192.168.1.20:47800" />
+          <button type="submit" class="primary">Connect</button>
+        </form>
+      </div>
+
+      <section id="recent-box" hidden>
+        <h2 class="muted">Recent</h2>
+        <div id="recent" class="home"></div>
+      </section>
+      <p id="error" class="error" hidden></p>
+    </main>
+    <script type="module" src="/src/connect.ts"></script>
+  </body>
+</html>
