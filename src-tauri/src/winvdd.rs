@@ -23,7 +23,8 @@ const CONFIG_DIR: &str = r"C:\VirtualDisplayDriver";
 
 const DRIVER_URL: &str = "https://github.com/VirtualDrivers/Virtual-Display-Driver/releases/download/25.7.23/VirtualDisplayDriver-x86.Driver.Only.zip";
 const DRIVER_SHA256: &str = "e24210692b442b39af763536330ce78b423f19342b7a7792c26de3944e418b3a";
-const NEFCON_URL: &str = "https://github.com/nefarius/nefcon/releases/download/v1.14.0/nefcon_v1.14.0.zip";
+const NEFCON_URL: &str =
+    "https://github.com/nefarius/nefcon/releases/download/v1.14.0/nefcon_v1.14.0.zip";
 const NEFCON_SHA256: &str = "a15557da24a9efca203158de3b43b0eaf982db231f0194031f1ed428bc13e669";
 
 /// The driver is installed and running (its pipe answers).
@@ -41,20 +42,29 @@ pub fn install() -> Result<(), String> {
         return Ok(());
     }
     let script = std::env::temp_dir().join("deskspan-install-display-driver.ps1");
-    std::fs::write(&script, install_script()).map_err(|e| format!("cannot prepare the installer: {e}"))?;
+    std::fs::write(&script, install_script())
+        .map_err(|e| format!("cannot prepare the installer: {e}"))?;
     // Start-Process -Verb RunAs shows the UAC prompt; -Wait for the result.
     let launcher = format!(
         "$p = Start-Process -FilePath powershell.exe -Verb RunAs -Wait -PassThru -WindowStyle Hidden -ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-File','{}'; exit $p.ExitCode",
         script.display()
     );
     let status = std::process::Command::new("powershell.exe")
-        .args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", &launcher])
+        .args([
+            "-NoProfile",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-Command",
+            &launcher,
+        ])
         .status()
         .map_err(|e| format!("cannot start the installer: {e}"))?;
     let _ = std::fs::remove_file(&script);
     if !status.success() {
         return Err(match status.code() {
-            Some(2) => "a download didn't match its expected checksum; nothing was installed".into(),
+            Some(2) => {
+                "a download didn't match its expected checksum; nothing was installed".into()
+            }
             Some(1223) | None => "the administrator prompt was cancelled".into(),
             Some(c) => format!("the driver installer stopped (code {c})"),
         });
@@ -127,7 +137,8 @@ fn command(cmd: &str) -> Result<(), String> {
 /// Settings file: one monitor offered at `w`×`h` (60 Hz).
 fn write_settings(count: u32, w: u32, h: u32) -> Result<(), String> {
     let path = PathBuf::from(CONFIG_DIR).join("vdd_settings.xml");
-    let xml = std::fs::read_to_string(&path).map_err(|e| format!("cannot read the driver settings: {e}"))?;
+    let xml = std::fs::read_to_string(&path)
+        .map_err(|e| format!("cannot read the driver settings: {e}"))?;
     let xml = replace_between(&xml, "<count>", "</count>", &count.to_string());
     let list = format!(
         "\n        <resolution>\n            <width>{w}</width>\n            <height>{h}</height>\n            <refresh_rate>60</refresh_rate>\n        </resolution>\n    "
