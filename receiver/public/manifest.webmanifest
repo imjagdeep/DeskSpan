@@ -1,0 +1,10 @@
+{
+  "name": "DeskSpan screen",
+  "short_name": "DeskSpan",
+  "description": "This device as a second screen for your computer",
+  "start_url": "/",
+  "display": "fullscreen",
+  "background_color": "#0b0b0d",
+  "theme_color": "#0b0b0d",
+  "icons": [{ "src": "/favicon.png", "sizes": "256x256", "type": "image/png" }]
+}

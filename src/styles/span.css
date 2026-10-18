@@ -1,0 +1,22 @@
+/* DeskSpan's own pieces on top of the shared DeskLab theme. */
+.check-row { display: flex; gap: 10px; align-items: flex-start; margin: 10px 0 4px; cursor: pointer; }
+.check-row input { margin-top: 3px; }
+.block { display: block; }
+.setting-line { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin: 12px 0 4px; }
+
+.share-grid { display: grid; grid-template-columns: auto 1fr; gap: 22px; align-items: center; }
+.qr { width: 196px; height: 196px; border-radius: 12px; background: #fff; padding: 6px; box-shadow: var(--shadow-sm); }
+.qr img { width: 100%; height: 100%; display: block; image-rendering: pixelated; }
+.pair-code { font-size: 30px; font-weight: 700; letter-spacing: 0.18em; font-variant-numeric: tabular-nums; margin: 2px 0 4px; }
+.url-list { display: flex; flex-direction: column; gap: 2px; margin: 8px 0; }
+.url-list .mono { user-select: all; }
+.share-off { text-align: center; padding: 30px 20px; }
+.share-off .dropzone-icon { margin-bottom: 12px; }
+.request { border-color: var(--accent); }
+.request .row { margin: 10px 0 0; }
+.device-meta { color: var(--text-2); font-size: 12px; }
+.list-row .actions { display: flex; gap: 6px; align-items: center; }
+
+@media (max-width: 760px) {
+  .share-grid { grid-template-columns: 1fr; justify-items: center; text-align: center; }
+}

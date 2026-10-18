@@ -1,0 +1,81 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "DeskSpan",
+  "version": "0.1.0",
+  "identifier": "app.deskspan.desktop",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "devUrl": "http://localhost:1420",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "DeskSpan",
+        "width": 1040,
+        "height": 720,
+        "minWidth": 720,
+        "minHeight": 500,
+        "visible": false
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' ipc: http://ipc.localhost"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": [
+      "nsis",
+      "app",
+      "dmg",
+      "deb",
+      "appimage"
+    ],
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "publisher": "Jagdeep Sandhu",
+    "copyright": "Copyright (c) 2026 Jagdeep Sandhu. MIT License.",
+    "category": "Utility",
+    "shortDescription": "Use a phone, tablet or computer as a second screen",
+    "longDescription": "DeskSpan turns a phone, tablet, iPad or spare computer into a second monitor: mirror or extend your screen over Wi-Fi or a cable, with touch and pen control and sound. The other device just opens a link in its browser. Free, private, no cloud.",
+    "windows": {
+      "nsis": {
+        "installMode": "currentUser",
+        "displayLanguageSelector": false,
+        "installerIcon": "icons/icon.ico",
+        "installerHooks": "./windows/hooks.nsh"
+      },
+      "webviewInstallMode": {
+        "type": "downloadBootstrapper"
+      }
+    },
+    "macOS": {
+      "minimumSystemVersion": "13.0"
+    },
+    "createUpdaterArtifacts": true,
+    "linux": {
+      "deb": {
+        "depends": []
+      }
+    }
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEZCOTU1OTQyQ0YwNDRGMkYKUldRdlR3VFBRbG1WKyt6aXM3VlBzeUxBbXorbDg5ZVYvQmY3U2hxcmJPWXdRcmw2SFp6aHNwaG4K",
+      "endpoints": [
+        "https://github.com/imjagdeep/DeskSpan/releases/latest/download/latest.json"
+      ],
+      "windows": {
+        "installMode": "passive"
+      }
+    }
+  }
+}

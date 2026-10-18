@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
+    <meta name="theme-color" content="#0b0b0d" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <link rel="icon" href="/favicon.png" />
+    <link rel="apple-touch-icon" href="/favicon.png" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <title>DeskSpan screen</title>
+  </head>
+  <body>
+    <video id="screen" playsinline autoplay muted></video>
+
+    <main id="panel" class="panel" aria-live="polite">
+      <img class="logo" src="/favicon.png" alt="" width="72" height="72" />
+      <h1 id="title">Connecting…</h1>
+      <p id="text" class="muted"></p>
+
+      <form id="code-form" class="code-form" hidden>
+        <label for="code">Code shown in DeskSpan on the computer</label>
+        <input id="code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]*" maxlength="6" placeholder="000000" required />
+        <label for="name">Name for this device</label>
+        <input id="name" maxlength="60" required />
+        <button type="submit" class="primary">Connect</button>
+      </form>
+
+      <div id="actions" class="actions" hidden>
+        <button id="retry" type="button" class="primary">Try again</button>
+      </div>
+    </main>
+
+    <div id="bar" class="bar" hidden>
+      <span id="bar-host" class="bar-host"></span>
+      <button id="sound" type="button">Sound on</button>
+      <button id="full" type="button">Full screen</button>
+      <button id="leave" type="button">Disconnect</button>
+    </div>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
