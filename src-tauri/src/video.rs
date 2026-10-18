@@ -183,12 +183,9 @@ impl Video {
             }
             alone_since = None;
 
-            let shot = monitor
-                .capture_image()
-                .map_err(|e| format!("cannot capture the screen: {e}"))?;
-            let (sw, sh) = (shot.width(), shot.height());
+            let (rgba, sw, sh) = grab(&monitor)?;
             let scale = if sw > MAX_WIDTH { 2 } else { 1 };
-            let (yuv, w, h) = rgba_to_i420(shot.as_raw(), sw, sh, scale);
+            let (yuv, w, h) = rgba_to_i420(&rgba, sw, sh, scale);
             if w == 0 || h == 0 {
                 return Err("the screen reported no size".into());
             }
@@ -224,6 +221,31 @@ impl Video {
             }
         }
     }
+}
+
+/// One picture of the screen as RGBA. macOS 14+: ScreenCaptureKit, asked
+/// for at most MAX_WIDTH wide (xcap's older API returns nothing on macOS
+/// 27); xcap elsewhere.
+fn grab(monitor: &xcap::Monitor) -> Result<(Vec<u8>, u32, u32), String> {
+    #[cfg(target_os = "macos")]
+    if crate::sck::available() {
+        let id = monitor.id().map_err(|e| format!("screen id: {e}"))?;
+        let scale = monitor.scale_factor().unwrap_or(1.0) as f64;
+        let mut w =
+            (monitor.width().map_err(|e| format!("screen size: {e}"))? as f64 * scale) as u32;
+        let mut h =
+            (monitor.height().map_err(|e| format!("screen size: {e}"))? as f64 * scale) as u32;
+        if w > MAX_WIDTH {
+            w /= 2;
+            h /= 2;
+        }
+        return crate::sck::capture_display(id, w, h);
+    }
+    let shot = monitor
+        .capture_image()
+        .map_err(|e| format!("cannot capture the screen: {e}"))?;
+    let (w, h) = (shot.width(), shot.height());
+    Ok((shot.into_raw(), w, h))
 }
 
 /// The main screen (or the first one).

@@ -1,7 +1,7 @@
 name: Test build
 
 # Run by hand (Actions tab or `gh workflow run test-build.yml --ref <branch>`):
-# builds the Windows installer from a branch and keeps it as a run artifact
+# builds the Windows installer (and a macOS .app) from a branch and keeps them as run artifacts
 # for a few days, so a change can be tried on a real PC before a release.
 # Nothing is published.
 on:
@@ -37,4 +37,43 @@ jobs:
         with:
           name: deskspan-windows-${{ github.sha }}
           path: src-tauri/target/release/bundle/nsis/*-setup.exe
+          retention-days: 5
+
+  # Apple Silicon .app, signed with the Developer ID (so macOS keeps the
+  # Screen Recording permission it gave the released app) but not
+  # notarized: for copying straight onto a test Mac, not for downloading.
+  macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - run: npm ci
+
+      - name: Build the app
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
+        run: npm run tauri build -- --bundles app
+
+      # tar keeps the bundle's symlinks and permissions.
+      - run: tar -czf DeskSpan-app.tgz -C src-tauri/target/release/bundle/macos DeskSpan.app
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: deskspan-macos-${{ github.sha }}
+          path: DeskSpan-app.tgz
           retention-days: 5

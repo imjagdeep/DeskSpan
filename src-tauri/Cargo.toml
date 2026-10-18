@@ -27,6 +27,8 @@ tauri-plugin-autostart = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tracing = "0.1"
+# Warnings and steps to stderr (seen when started from a terminal).
+tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "std"] }
 # The local server the receivers talk to (server.rs): page, pairing, signalling.
 axum = { version = "0.8", default-features = false, features = ["http1", "tokio", "ws", "query"] }
 tokio = { version = "1", features = ["net", "sync", "time", "macros"] }
@@ -47,6 +49,15 @@ reqwest = { version = "0.13", default-features = false, features = ["rustls-no-p
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 keyring = "4"
 gethostname = "1"
+
+# macOS 14+: screen pictures through ScreenCaptureKit (sck.rs).
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+objc2-foundation = "0.3"
+objc2-core-foundation = "0.3"
+objc2-core-graphics = "0.3"
+objc2-screen-capture-kit = "0.3"
+block2 = "0.6"
 
 [dev-dependencies]
 tempfile = "3"

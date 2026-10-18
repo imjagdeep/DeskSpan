@@ -9,6 +9,8 @@ mod devices;
 mod h264lib;
 mod media;
 mod peer;
+#[cfg(target_os = "macos")]
+mod sck;
 mod secret;
 mod server;
 mod settings;
@@ -286,6 +288,12 @@ fn first_start_autostart(app: &AppHandle, s: &mut Settings) {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // Ignored if a subscriber is already set (tests).
+    let _ = tracing_subscriber::fmt()
+        .with_writer(std::io::stderr)
+        .with_max_level(tracing::Level::INFO)
+        .with_ansi(false)
+        .try_init();
     tauri::Builder::default()
         // Must be first: a second launch opens the running window.
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
