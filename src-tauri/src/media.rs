@@ -17,6 +17,7 @@ use tauri::AppHandle;
 use tokio::sync::mpsc;
 
 /// What a newly joined receiver wants.
+#[derive(Debug)]
 pub struct Join {
     pub session: u64,
     pub device_id: String,
