@@ -13,12 +13,12 @@
 
 use crate::devices::{self, Devices};
 use crate::secret;
+use axum::body::Body;
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::extract::{ConnectInfo, State as AxState};
+use axum::extract::{DefaultBodyLimit, Query};
 use axum::http::{header, HeaderMap, HeaderValue, StatusCode, Uri};
 use axum::response::{IntoResponse, Response};
-use axum::body::Body;
-use axum::extract::{DefaultBodyLimit, Query};
 use axum::routing::{get, post};
 use axum::Router;
 use futures_util::{SinkExt, StreamExt};
@@ -383,7 +383,11 @@ impl Hub {
     }
 
     /// Serve on one address; the sender stops it.
-    async fn listen_on(self: &Arc<Self>, ip: IpAddr, port: u16) -> Result<oneshot::Sender<()>, String> {
+    async fn listen_on(
+        self: &Arc<Self>,
+        ip: IpAddr,
+        port: u16,
+    ) -> Result<oneshot::Sender<()>, String> {
         let listener = tokio::net::TcpListener::bind(SocketAddr::new(ip, port))
             .await
             .map_err(|e| {
@@ -393,10 +397,7 @@ impl Hub {
         let (tx, rx) = oneshot::channel::<()>();
         let router = Router::new()
             .route("/ws", get(ws_upgrade))
-            .route(
-                "/api/send",
-                post(upload).layer(DefaultBodyLimit::disable()),
-            )
+            .route("/api/send", post(upload).layer(DefaultBodyLimit::disable()))
             .fallback(page)
             .with_state(self.clone());
         tauri::async_runtime::spawn(async move {
@@ -443,8 +444,10 @@ impl Hub {
             match g.running.as_mut() {
                 Some(r) if r.generation == generation => {
                     r.listeners.extend(added);
-                    let (keep, stop): (Vec<_>, Vec<_>) =
-                        r.listeners.drain(..).partition(|(ip, _)| !gone.contains(ip));
+                    let (keep, stop): (Vec<_>, Vec<_>) = r
+                        .listeners
+                        .drain(..)
+                        .partition(|(ip, _)| !gone.contains(ip));
                     r.listeners = keep;
                     for (ip, tx) in stop {
                         tracing::info!("stopped sharing on {ip} (network or cable gone)");
@@ -891,7 +894,9 @@ async fn save_upload(dir: &Path, name: &str, body: Body) -> Result<String, Strin
                 .await
                 .map_err(|e| format!("cannot save {name}: {e}"))?;
         }
-        file.flush().await.map_err(|e| format!("cannot save {name}: {e}"))
+        file.flush()
+            .await
+            .map_err(|e| format!("cannot save {name}: {e}"))
     }
     .await;
     drop(file);
@@ -918,7 +923,10 @@ pub fn safe_name(raw: &str) -> String {
         .filter(|c| !c.is_control() && !"<>:\"|?*".contains(*c))
         .take(120)
         .collect();
-    let cleaned = cleaned.trim().trim_start_matches('.').trim_end_matches(['.', ' ']);
+    let cleaned = cleaned
+        .trim()
+        .trim_start_matches('.')
+        .trim_end_matches(['.', ' ']);
     if cleaned.is_empty() {
         "file from phone".into()
     } else {
@@ -1132,7 +1140,11 @@ async fn receiver(hub: Arc<Hub>, socket: WebSocket, addr: SocketAddr) {
                 }
             }
             Inbound::Sent { count } => {
-                let what = if count == 1 { "1 file".to_string() } else { format!("{count} files") };
+                let what = if count == 1 {
+                    "1 file".to_string()
+                } else {
+                    format!("{count} files")
+                };
                 crate::notify(
                     &hub.app,
                     &format!("{what} from {}", device.name),
