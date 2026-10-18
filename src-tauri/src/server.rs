@@ -56,8 +56,6 @@ pub enum Auth {
 }
 
 /// From a receiver.
-// Answer/Ice are read by the media engine (next step of milestone 1).
-#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 #[serde(tag = "t", rename_all = "kebab-case")]
 pub enum Inbound {
@@ -79,9 +77,7 @@ pub enum Inbound {
     },
 }
 
-/// To a receiver.
-// Offer/Ice are sent by the media engine (next step of milestone 1).
-#[allow(dead_code)]
+/// To a receiver. (Our ICE candidates travel inside the offer.)
 #[derive(Debug, Serialize)]
 #[serde(tag = "t", rename_all = "kebab-case")]
 pub enum Outbound<'a> {
@@ -104,8 +100,9 @@ pub enum Outbound<'a> {
     Offer {
         sdp: &'a str,
     },
-    Ice {
-        c: &'a serde_json::Value,
+    /// Something the receiver should show (e.g. why there's no picture).
+    Notice {
+        text: &'a str,
     },
     Bye {
         reason: &'a str,
@@ -161,6 +158,17 @@ struct Running {
     stop: Vec<oneshot::Sender<()>>,
 }
 
+/// What the media engine (media.rs) hears about receivers.
+#[derive(Debug)]
+pub enum MediaEvent {
+    /// Let in and welcomed: offer it the picture.
+    Joined { session: u64 },
+    /// Gone (closed, removed, or sharing stopped).
+    Left { session: u64 },
+    /// Its answer or ICE candidate.
+    Signal { session: u64, msg: Inbound },
+}
+
 struct Inner {
     devices: Devices,
     pairing: Option<Pairing>,
@@ -169,7 +177,7 @@ struct Inner {
     next_session: u64,
     running: Option<Running>,
     /// Where signalling from receivers goes (the media engine), if listening.
-    signals: Option<mpsc::UnboundedSender<(u64, Inbound)>>,
+    signals: Option<mpsc::UnboundedSender<MediaEvent>>,
 }
 
 pub struct Hub {
@@ -353,7 +361,7 @@ impl Hub {
 
     /// Stop listening and disconnect every receiver.
     pub fn stop(&self) {
-        {
+        let gone: Vec<u64> = {
             let mut g = self.lock();
             if let Some(r) = g.running.take() {
                 for s in r.stop {
@@ -363,9 +371,14 @@ impl Hub {
             let bye = json(&Outbound::Bye {
                 reason: "Sharing was turned off on the computer.",
             });
-            for (_, s) in g.sessions.drain() {
-                let _ = s.tx.send(bye.clone());
-            }
+            let gone = g
+                .sessions
+                .drain()
+                .map(|(id, s)| {
+                    let _ = s.tx.send(bye.clone());
+                    id
+                })
+                .collect();
             for r in g.requests.drain(..) {
                 let _ = r.answer.send(Decision {
                     allow: false,
@@ -373,6 +386,10 @@ impl Hub {
                 });
             }
             g.pairing = None;
+            gone
+        };
+        for session in gone {
+            self.media(MediaEvent::Left { session });
         }
         self.changed();
     }
@@ -412,20 +429,25 @@ impl Hub {
 
     /// Forget a device; it is disconnected and needs pairing again.
     pub fn remove_device(&self, id: &str) -> Result<(), String> {
+        let mut gone = Vec::new();
         {
             let mut g = self.lock();
             g.devices.remove(id)?;
             let bye = json(&Outbound::Bye {
                 reason: "This device was removed on the computer.",
             });
-            g.sessions.retain(|_, s| {
+            g.sessions.retain(|session, s| {
                 if s.device_id == id {
                     let _ = s.tx.send(bye.clone());
+                    gone.push(*session);
                     false
                 } else {
                     true
                 }
             });
+        }
+        for session in gone {
+            self.media(MediaEvent::Left { session });
         }
         self.changed();
         Ok(())
@@ -444,15 +466,30 @@ impl Hub {
     }
 
     /// The media engine takes the receivers' signalling from here.
-    #[allow(dead_code)] // media engine: next step of milestone 1
-    pub fn take_signals(&self) -> mpsc::UnboundedReceiver<(u64, Inbound)> {
+    pub fn take_signals(&self) -> mpsc::UnboundedReceiver<MediaEvent> {
         let (tx, rx) = mpsc::unbounded_channel();
         self.lock().signals = Some(tx);
         rx
     }
 
+    /// Tell the media engine (if it's listening).
+    fn media(&self, ev: MediaEvent) {
+        let sink = self.lock().signals.clone();
+        if let Some(sink) = sink {
+            let _ = sink.send(ev);
+        }
+    }
+
+    /// The addresses the server listens on (the picture uses the same).
+    pub fn listen_ips(&self) -> Vec<IpAddr> {
+        self.lock()
+            .running
+            .as_ref()
+            .map(|r| r.addresses.clone())
+            .unwrap_or_default()
+    }
+
     /// Send a signalling message to one receiver. False if it has gone.
-    #[allow(dead_code)] // media engine: next step of milestone 1
     pub fn send(&self, session: u64, msg: &Outbound<'_>) -> bool {
         let g = self.lock();
         match g.sessions.get(&session) {
@@ -801,24 +838,24 @@ async fn receiver(hub: Arc<Hub>, socket: WebSocket, addr: SocketAddr) {
         host: &host,
         control: device.control,
     });
+    hub.media(MediaEvent::Joined { session });
     hub.changed();
 
     // 3. Signalling until the receiver goes.
     while let Some(msg) = next_message(&mut stream).await {
-        if let Inbound::Screen { w, h, dpr } = msg {
-            if let Some(s) = hub.lock().sessions.get_mut(&session) {
-                s.screen = Some(ScreenInfo { w, h, dpr });
+        match msg {
+            Inbound::Screen { w, h, dpr } => {
+                if let Some(s) = hub.lock().sessions.get_mut(&session) {
+                    s.screen = Some(ScreenInfo { w, h, dpr });
+                }
+                hub.changed();
             }
-            hub.changed();
-        }
-        let sink = hub.lock().signals.clone();
-        if let Some(sink) = sink {
-            if !matches!(msg, Inbound::Hello { .. }) {
-                let _ = sink.send((session, msg));
-            }
+            Inbound::Hello { .. } => {}
+            msg => hub.media(MediaEvent::Signal { session, msg }),
         }
     }
     hub.lock().sessions.remove(&session);
+    hub.media(MediaEvent::Left { session });
     writer.abort();
     hub.changed();
 }

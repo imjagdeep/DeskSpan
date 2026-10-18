@@ -169,6 +169,9 @@ export function SettingsPage() {
         <div className="more-tools">
           <DeskLabTools own="deskspan" />
           <div className="muted small made-by">
+            OpenH264 Video Codec provided by Cisco Systems, Inc. (downloaded from Cisco the first time you share; BSD licence).
+          </div>
+          <div className="muted small made-by">
             Open source, MIT licence. Made by Jagdeep Sandhu ·{" "}
             <button className="link" onClick={() => api.openLink("developer").catch(toastError)}>
               github.com/imjagdeep

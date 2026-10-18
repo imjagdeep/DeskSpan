@@ -1,10 +1,10 @@
 // Share screen: start sharing, the QR code and code for a new device,
 // devices asking to connect, and the screens connected now.
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { PageHeader } from "../components/Common";
 import { ShareIcon } from "../components/Icons";
-import { api, type RequestView } from "../lib/api";
+import { api, type RequestView, type VideoStatus } from "../lib/api";
 import { mmss, refreshHub, since, useHub } from "../lib/hub";
 import { toast, toastError, useAppInfo } from "../lib/store";
 
@@ -12,6 +12,20 @@ export function Share() {
   const hub = useHub();
   const info = useAppInfo();
   const [busy, setBusy] = useState(false);
+  const [video, setVideo] = useState<VideoStatus | null>(null);
+  const watching = (hub?.sessions.length ?? 0) > 0;
+
+  // The picture's state, every second while someone is connected.
+  useEffect(() => {
+    if (!watching) {
+      setVideo(null);
+      return;
+    }
+    const read = () => api.videoStatus().then(setVideo).catch(() => undefined);
+    void read();
+    const t = window.setInterval(read, 1000);
+    return () => window.clearInterval(t);
+  }, [watching]);
 
   const run = async (f: () => Promise<void>) => {
     setBusy(true);
@@ -93,6 +107,7 @@ export function Share() {
       <div className="card">
         <div className="card-head">
           <h2>Connected screens</h2>
+          {video && <PictureState v={video} />}
         </div>
         {hub.sessions.length === 0 ? (
           <div className="muted small">None yet. Devices you allowed before reconnect by themselves when their page is open.</div>
@@ -106,11 +121,6 @@ export function Share() {
                   {s.screen ? ` · ${Math.round(s.screen.w * s.screen.dpr)}×${Math.round(s.screen.h * s.screen.dpr)}` : ""} · since {since(s.since)}
                 </div>
               </div>
-              <div className="actions">
-                <span className="badge warn" title="Showing the picture comes with the next update">
-                  Picture coming soon
-                </span>
-              </div>
             </div>
           ))
         )}
@@ -118,6 +128,19 @@ export function Share() {
       <Help />
     </div>
   );
+}
+
+/** What the picture is doing: getting the encoder, streaming, or why not. */
+function PictureState({ v }: { v: VideoStatus }) {
+  if (v.state === "preparing") return <span className="muted small">Getting the video encoder from Cisco (once, about 1 MB)…</span>;
+  if (v.state === "error") return <span className="error-text small">No picture: {v.error}</span>;
+  if (v.state === "streaming" && v.width > 0)
+    return (
+      <span className="muted small">
+        Main screen · {v.width}×{v.height} · {v.fps} fps
+      </span>
+    );
+  return <span className="muted small">Starting the picture…</span>;
 }
 
 /** "Allow <device>?" */

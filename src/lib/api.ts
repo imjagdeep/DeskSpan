@@ -51,6 +51,14 @@ export interface HubStatus {
   requests: RequestView[];
 }
 
+export interface VideoStatus {
+  state: "idle" | "preparing" | "streaming" | "error";
+  width: number;
+  height: number;
+  fps: number;
+  error: string | null;
+}
+
 export interface Device {
   id: string;
   name: string;
@@ -75,6 +83,7 @@ export const api = {
   startSharing: () => invoke<void>("start_sharing"),
   stopSharing: () => invoke<void>("stop_sharing"),
   hubStatus: () => invoke<HubStatus>("hub_status"),
+  videoStatus: () => invoke<VideoStatus>("video_status"),
   /** A fresh QR link and code; the old ones stop working. */
   newPairing: () => invoke<void>("new_pairing"),
   answerRequest: (id: string, allow: boolean, control: boolean) => invoke<void>("answer_request", { id, allow, control }),

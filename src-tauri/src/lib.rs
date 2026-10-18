@@ -1,15 +1,19 @@
 //! DeskSpan: use a phone, tablet or another computer as a second screen.
 //! Tray app with a small local server (server.rs) that receivers open in a
-//! browser; the media engine (capture, encode, WebRTC) plugs into its
-//! signalling.
+//! browser; media.rs gives each receiver a WebRTC connection (peer.rs) with
+//! the encoded screen (video.rs, Cisco's OpenH264 via h264lib.rs).
 
 mod account;
 mod desklab;
 mod devices;
+mod h264lib;
+mod media;
+mod peer;
 mod secret;
 mod server;
 mod settings;
 mod tray;
+mod video;
 
 use server::{Decision, Hub};
 use settings::Settings;
@@ -113,6 +117,12 @@ fn stop_sharing(hub: State<'_, Arc<Hub>>) {
 #[tauri::command]
 fn hub_status(hub: State<'_, Arc<Hub>>) -> server::Status {
     hub.status()
+}
+
+/// The picture: preparing / streaming / error, size and frame rate.
+#[tauri::command]
+fn video_status(video: State<'_, video::Video>) -> video::VideoStatus {
+    video.status()
 }
 
 /// A fresh QR link and code; the old ones stop working.
@@ -313,7 +323,11 @@ pub fn run() {
                 tracing::warn!("{e}");
             }
             let start_now = settings.start_on_launch;
-            app.manage(Hub::new(app.handle().clone(), &data_dir));
+            let hub = Hub::new(app.handle().clone(), &data_dir);
+            let video = video::Video::new(data_dir.clone());
+            media::start(hub.clone(), video.clone());
+            app.manage(hub);
+            app.manage(video);
             app.manage(AppState {
                 data_dir,
                 settings: Mutex::new(settings),
@@ -354,6 +368,7 @@ pub fn run() {
             start_sharing,
             stop_sharing,
             hub_status,
+            video_status,
             new_pairing,
             answer_request,
             devices_list,

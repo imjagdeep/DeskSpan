@@ -31,9 +31,10 @@ export type Inbound =
   | { t: "welcome"; id: string; key?: string; host: string; control: boolean }
   | { t: "offer"; sdp: string }
   | { t: "ice"; c: RTCIceCandidateInit }
+  | { t: "notice"; text: string }
   | { t: "bye"; reason: string };
 
-const KINDS = new Set(["need-code", "wrong-code", "wait", "denied", "welcome", "offer", "ice", "bye"]);
+const KINDS = new Set(["need-code", "wrong-code", "wait", "denied", "welcome", "offer", "ice", "notice", "bye"]);
 
 /** A message from the computer, or null if it isn't one we know. */
 export function parseInbound(text: string): Inbound | null {
@@ -60,6 +61,8 @@ export function parseInbound(text: string): Inbound | null {
       return typeof o.c === "object" && o.c !== null ? (o as unknown as Inbound) : null;
     case "bye":
       return typeof o.reason === "string" ? (o as unknown as Inbound) : null;
+    case "notice":
+      return typeof o.text === "string" ? (o as unknown as Inbound) : null;
     default:
       return o as unknown as Inbound;
   }
