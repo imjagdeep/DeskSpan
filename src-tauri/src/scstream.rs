@@ -174,7 +174,9 @@ impl Capture {
 
 impl Drop for Capture {
     fn drop(&mut self) {
-        let _ = wait_for(|handler| unsafe { self.stream.stopCaptureWithCompletionHandler(Some(handler)) });
+        let _ = wait_for(|handler| unsafe {
+            self.stream.stopCaptureWithCompletionHandler(Some(handler))
+        });
     }
 }
 
