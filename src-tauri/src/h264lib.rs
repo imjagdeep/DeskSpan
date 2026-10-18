@@ -42,7 +42,9 @@ pub async fn ensure(data_dir: &Path) -> Result<PathBuf, String> {
     download(&file, &dest).await?;
     if let Err(e) = load(&dest) {
         let _ = std::fs::remove_file(&dest);
-        return Err(format!("the encoder downloaded from Cisco didn't pass the check: {e}"));
+        return Err(format!(
+            "the encoder downloaded from Cisco didn't pass the check: {e}"
+        ));
     }
     Ok(dest)
 }
@@ -60,11 +62,9 @@ async fn download(file: &str, dest: &Path) -> Result<(), String> {
         .timeout(std::time::Duration::from_secs(60))
         .build()
         .map_err(|e| format!("cannot download the encoder: {e}"))?;
-    let res = client
-        .get(&url)
-        .send()
-        .await
-        .map_err(|e| format!("cannot download the encoder from Cisco ({e}); check the internet connection"))?;
+    let res = client.get(&url).send().await.map_err(|e| {
+        format!("cannot download the encoder from Cisco ({e}); check the internet connection")
+    })?;
     if !res.status().is_success() {
         return Err(format!(
             "cannot download the encoder from Cisco (HTTP {})",

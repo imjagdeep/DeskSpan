@@ -148,8 +148,8 @@ impl Video {
     /// The capture + encode loop (own thread).
     fn run(&self, library: &std::path::Path) -> Result<(), String> {
         use openh264::encoder::{
-            BitRate, Encoder, EncoderConfig, FrameRate, IntraFramePeriod, Profile,
-            RateControlMode, UsageType,
+            BitRate, Encoder, EncoderConfig, FrameRate, IntraFramePeriod, Profile, RateControlMode,
+            UsageType,
         };
         use openh264::formats::YUVBuffer;
 
@@ -296,7 +296,11 @@ mod tests {
     use super::*;
 
     fn solid(w: u32, h: u32, rgba: [u8; 4]) -> Vec<u8> {
-        rgba.iter().copied().cycle().take((w * h * 4) as usize).collect()
+        rgba.iter()
+            .copied()
+            .cycle()
+            .take((w * h * 4) as usize)
+            .collect()
     }
 
     #[test]
