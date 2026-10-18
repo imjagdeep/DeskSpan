@@ -11,7 +11,7 @@ use crate::server::{Hub, Inbound, MediaEvent, Outbound, ScreenInfo};
 use crate::video::Video;
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tauri::AppHandle;
 use tokio::sync::mpsc;
@@ -31,6 +31,8 @@ pub fn start(app: AppHandle, hub: Arc<Hub>, mirror: Video, data_dir: PathBuf) {
     let mut events = hub.take_signals();
     tauri::async_runtime::spawn(async move {
         let mut peers: HashMap<u64, mpsc::UnboundedSender<Inbound>> = HashMap::new();
+        // Extend receivers' displays, so a new screen size can resize them.
+        let displays: Displays = Arc::new(Mutex::new(HashMap::new()));
         while let Some(ev) = events.recv().await {
             match ev {
                 MediaEvent::Joined(join) => {
@@ -43,6 +45,7 @@ pub fn start(app: AppHandle, hub: Arc<Hub>, mirror: Video, data_dir: PathBuf) {
                         rx,
                         mirror.clone(),
                         data_dir.clone(),
+                        displays.clone(),
                     ));
                 }
                 // Dropping the sender ends that receiver's connection.
@@ -54,10 +57,24 @@ pub fn start(app: AppHandle, hub: Arc<Hub>, mirror: Video, data_dir: PathBuf) {
                         let _ = tx.send(msg);
                     }
                 }
+                MediaEvent::Resized { session, screen } => {
+                    let id = displays
+                        .lock()
+                        .unwrap_or_else(|p| p.into_inner())
+                        .get(&session)
+                        .copied();
+                    if let Some(id) = id {
+                        let plan = DisplayPlan::for_screen(screen.w, screen.h, screen.dpr);
+                        resize_display(&app, id, plan);
+                    }
+                }
             }
         }
     });
 }
+
+/// Session → its virtual display, for extend receivers.
+type Displays = Arc<Mutex<HashMap<u64, u32>>>;
 
 /// One receiver, for as long as it stays.
 async fn serve(
@@ -67,6 +84,7 @@ async fn serve(
     mut signals: mpsc::UnboundedReceiver<Inbound>,
     mirror: Video,
     data_dir: PathBuf,
+    displays: Displays,
 ) {
     let session = join.session;
     // Extend: this receiver's own display and stream; otherwise the shared
@@ -95,6 +113,12 @@ async fn serve(
     } else {
         None
     };
+    if let Some(id) = display {
+        displays
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .insert(session, id);
+    }
     let video = match display {
         Some(id) => Video::for_display(data_dir, id),
         None => mirror,
@@ -124,6 +148,10 @@ async fn serve(
         }
     }
     if let Some(id) = display {
+        displays
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .remove(&session);
         remove_display(&app, id);
     }
 }
@@ -209,6 +237,14 @@ fn remove_display(app: &AppHandle, id: u32) {
 
 #[cfg(not(target_os = "macos"))]
 fn remove_display(_app: &AppHandle, _id: u32) {}
+
+#[cfg(target_os = "macos")]
+fn resize_display(app: &AppHandle, id: u32, plan: DisplayPlan) {
+    crate::vdisplay::resize(app, id, plan);
+}
+
+#[cfg(not(target_os = "macos"))]
+fn resize_display(_app: &AppHandle, _id: u32, _plan: DisplayPlan) {}
 
 #[cfg(test)]
 mod tests {
