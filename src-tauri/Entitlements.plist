@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Load Cisco's OpenH264 library, which is signed by Cisco, not by us.
+	     The hardened runtime refuses other teams' libraries without this.
+	     h264lib.rs only loads it when its SHA-256 is a published Cisco build. -->
+	<key>com.apple.security.cs.disable-library-validation</key>
+	<true/>
+</dict>
+</plist>
