@@ -144,11 +144,7 @@ impl Devices {
 
 /// A device names itself: keep it short and printable.
 pub fn clean_name(name: &str) -> String {
-    let n: String = name
-        .chars()
-        .filter(|c| !c.is_control())
-        .take(60)
-        .collect();
+    let n: String = name.chars().filter(|c| !c.is_control()).take(60).collect();
     let n = n.trim();
     if n.is_empty() {
         "Unnamed device".into()

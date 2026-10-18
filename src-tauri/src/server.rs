@@ -87,7 +87,9 @@ pub enum Inbound {
 pub enum Outbound<'a> {
     /// The link or saved key didn't work: ask for the code.
     NeedCode,
-    WrongCode { left: u32 },
+    WrongCode {
+        left: u32,
+    },
     /// Waiting for the user's OK on the computer.
     Wait,
     Denied,
@@ -523,7 +525,9 @@ impl Hub {
         crate::notify(
             &self.app,
             "A device wants to connect",
-            &format!("{name} ({address}) asks to use this computer's screen. Open DeskSpan to allow it."),
+            &format!(
+                "{name} ({address}) asks to use this computer's screen. Open DeskSpan to allow it."
+            ),
         );
         let decision = match tokio::time::timeout(ASK_TIMEOUT, rx).await {
             Ok(Ok(d)) => d,
@@ -646,7 +650,10 @@ async fn page(AxState(hub): AxState<Arc<Hub>>, uri: Uri, headers: HeaderMap) -> 
         let host = headers
             .get(header::HOST)
             .and_then(|v| v.to_str().ok())
-            .filter(|v| v.bytes().all(|b| b.is_ascii_alphanumeric() || b".:[]-".contains(&b)))
+            .filter(|v| {
+                v.bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || b".:[]-".contains(&b))
+            })
             .unwrap_or("localhost");
         let csp = format!(
             "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; \
@@ -818,7 +825,9 @@ async fn receiver(hub: Arc<Hub>, socket: WebSocket, addr: SocketAddr) {
 
 /// The next message we understand; None when the socket closes. Unknown or
 /// broken messages are skipped.
-async fn next_message(stream: &mut futures_util::stream::SplitStream<WebSocket>) -> Option<Inbound> {
+async fn next_message(
+    stream: &mut futures_util::stream::SplitStream<WebSocket>,
+) -> Option<Inbound> {
     while let Some(frame) = stream.next().await {
         match frame {
             Ok(Message::Text(text)) => match serde_json::from_str::<Inbound>(text.as_str()) {
@@ -841,7 +850,13 @@ mod tests {
         for ok in ["10.1.2.3", "172.16.0.1", "172.31.255.1", "192.168.1.67"] {
             assert!(is_private_lan(ok.parse().unwrap()), "{ok}");
         }
-        for no in ["100.78.249.4", "172.32.0.1", "8.8.8.8", "169.254.1.1", "127.0.0.1"] {
+        for no in [
+            "100.78.249.4",
+            "172.32.0.1",
+            "8.8.8.8",
+            "169.254.1.1",
+            "127.0.0.1",
+        ] {
             assert!(!is_private_lan(no.parse().unwrap()), "{no}");
         }
     }
@@ -853,7 +868,12 @@ mod tests {
             asset_key("/assets/index-Ab1.js").as_deref(),
             Some("receiver/assets/index-Ab1.js")
         );
-        for bad in ["/assets/../index.html", "/settings.json", "/assets/a%2e%2e", "/assets\\x"] {
+        for bad in [
+            "/assets/../index.html",
+            "/settings.json",
+            "/assets/a%2e%2e",
+            "/assets\\x",
+        ] {
             assert_eq!(asset_key(bad), None, "{bad}");
         }
     }
@@ -863,9 +883,15 @@ mod tests {
         let mut h = HeaderMap::new();
         h.insert(header::HOST, HeaderValue::from_static("192.168.1.5:47800"));
         assert!(same_origin(&h));
-        h.insert(header::ORIGIN, HeaderValue::from_static("http://192.168.1.5:47800"));
+        h.insert(
+            header::ORIGIN,
+            HeaderValue::from_static("http://192.168.1.5:47800"),
+        );
         assert!(same_origin(&h));
-        h.insert(header::ORIGIN, HeaderValue::from_static("https://evil.example"));
+        h.insert(
+            header::ORIGIN,
+            HeaderValue::from_static("https://evil.example"),
+        );
         assert!(!same_origin(&h));
     }
 
@@ -875,14 +901,26 @@ mod tests {
             r#"{"t":"hello","name":"iPad","screen":{"w":1024,"h":768,"dpr":2},"auth":{"kind":"code","code":"123456"}}"#,
         )
         .unwrap();
-        assert!(matches!(m, Inbound::Hello { auth: Auth::Code { .. }, .. }));
+        assert!(matches!(
+            m,
+            Inbound::Hello {
+                auth: Auth::Code { .. },
+                ..
+            }
+        ));
         let out = json(&Outbound::Welcome {
             id: "a",
             key: None,
             host: "pc",
             control: false,
         });
-        assert_eq!(out, r#"{"t":"welcome","id":"a","host":"pc","control":false}"#);
-        assert_eq!(json(&Outbound::WrongCode { left: 2 }), r#"{"t":"wrong-code","left":2}"#);
+        assert_eq!(
+            out,
+            r#"{"t":"welcome","id":"a","host":"pc","control":false}"#
+        );
+        assert_eq!(
+            json(&Outbound::WrongCode { left: 2 }),
+            r#"{"t":"wrong-code","left":2}"#
+        );
     }
 }
