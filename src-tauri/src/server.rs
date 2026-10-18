@@ -13,11 +13,13 @@
 
 use crate::devices::{self, Devices};
 use crate::secret;
+use axum::body::Body;
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::extract::{ConnectInfo, State as AxState};
+use axum::extract::{DefaultBodyLimit, Query};
 use axum::http::{header, HeaderMap, HeaderValue, StatusCode, Uri};
 use axum::response::{IntoResponse, Response};
-use axum::routing::get;
+use axum::routing::{get, post};
 use axum::Router;
 use futures_util::{SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
@@ -26,7 +28,7 @@ use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::path::Path;
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
 use tokio::sync::{mpsc, oneshot};
 
 /// A QR link or code works this long, once.
@@ -35,6 +37,11 @@ const PAIRING_TTL: Duration = Duration::from_secs(10 * 60);
 const MAX_WRONG: u32 = 5;
 /// How long the user has to answer "Allow this device?".
 const ASK_TIMEOUT: Duration = Duration::from_secs(120);
+/// How often to look for a new network or cable while sharing.
+const ADDRESS_CHECK: Duration = Duration::from_secs(3);
+/// The largest single file a phone may send (8 GiB).
+const MAX_UPLOAD: u64 = 8 << 30;
+
 /// A receiver must say hello this soon after connecting.
 const HELLO_TIMEOUT: Duration = Duration::from_secs(15);
 
@@ -74,6 +81,14 @@ pub enum Inbound {
         w: u32,
         h: u32,
         dpr: f64,
+    },
+    /// "Use as screen" tapped: start the picture (and an extend display).
+    ScreenStart,
+    /// Back to the receiver's home page: stop the picture.
+    ScreenStop,
+    /// Files were sent with /api/send; one notification for the batch.
+    Sent {
+        count: u32,
     },
 }
 
@@ -149,13 +164,24 @@ struct Session {
     address: String,
     since: u64,
     screen: Option<ScreenInfo>,
+    /// The picture is on (the receiver chose "Use as screen").
+    screen_on: bool,
     tx: mpsc::UnboundedSender<String>,
 }
 
 struct Running {
     port: u16,
-    addresses: Vec<IpAddr>,
-    stop: Vec<oneshot::Sender<()>>,
+    everywhere: bool,
+    /// One server per address; a cable plugged in later adds one.
+    listeners: Vec<(IpAddr, oneshot::Sender<()>)>,
+    /// Which start this is, so an old address watcher stops itself.
+    generation: u64,
+}
+
+impl Running {
+    fn addresses(&self) -> Vec<IpAddr> {
+        self.listeners.iter().map(|(ip, _)| *ip).collect()
+    }
 }
 
 /// What the media engine (media.rs) hears about receivers.
@@ -178,6 +204,8 @@ struct Inner {
     sessions: HashMap<u64, Session>,
     next_session: u64,
     running: Option<Running>,
+    /// Counts starts (see Running::generation).
+    generation: u64,
     /// Where signalling from receivers goes (the media engine), if listening.
     signals: Option<mpsc::UnboundedSender<MediaEvent>>,
 }
@@ -195,6 +223,8 @@ pub struct SessionView {
     pub address: String,
     pub since: u64,
     pub screen: Option<ScreenInfo>,
+    /// Showing the picture (not just connected).
+    pub screen_on: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -232,6 +262,7 @@ impl Hub {
                 sessions: HashMap::new(),
                 next_session: 1,
                 running: None,
+                generation: 0,
                 signals: None,
             }),
         })
@@ -252,7 +283,7 @@ impl Hub {
     pub fn status(&self) -> Status {
         let mut g = self.lock();
         let (running, port, addresses) = match &g.running {
-            Some(r) => (true, r.port, r.addresses.clone()),
+            Some(r) => (true, r.port, r.addresses()),
             None => (false, 0, Vec::new()),
         };
         // An old link and code are replaced as soon as anyone looks.
@@ -289,6 +320,7 @@ impl Hub {
                     address: s.address.clone(),
                     since: s.since,
                     screen: s.screen,
+                    screen_on: s.screen_on,
                 })
                 .collect(),
             requests: g
@@ -309,56 +341,130 @@ impl Hub {
             return Ok(());
         }
         let wanted = listen_addresses(everywhere)?;
-        let mut stop = Vec::new();
-        let mut opened = Vec::new();
+        let mut listeners = Vec::new();
         let mut last_err = String::new();
         for ip in wanted {
-            let listener = match tokio::net::TcpListener::bind(SocketAddr::new(ip, port)).await {
-                Ok(l) => l,
-                Err(e) => {
-                    tracing::warn!("cannot listen on {ip}:{port}: {e}");
-                    last_err = format!("{ip}:{port}: {e}");
-                    continue;
-                }
-            };
-            let (tx, rx) = oneshot::channel::<()>();
-            let router = Router::new()
-                .route("/ws", get(ws_upgrade))
-                .fallback(page)
-                .with_state(self.clone());
-            tauri::async_runtime::spawn(async move {
-                let serve = axum::serve(
-                    listener,
-                    router.into_make_service_with_connect_info::<SocketAddr>(),
-                )
-                .with_graceful_shutdown(async {
-                    let _ = rx.await;
-                });
-                if let Err(e) = serve.await {
-                    tracing::warn!("server on {ip}:{port} stopped: {e}");
-                }
-            });
-            stop.push(tx);
-            opened.push(ip);
+            match self.listen_on(ip, port).await {
+                Ok(stop) => listeners.push((ip, stop)),
+                Err(e) => last_err = e,
+            }
         }
-        if opened.is_empty() {
+        if listeners.is_empty() {
             return Err(if last_err.is_empty() {
                 "no network to share on: connect this computer to Wi-Fi or a cable network".into()
             } else {
                 format!("cannot open port {port} ({last_err}); another app may be using it, choose another port in Settings")
             });
         }
-        {
+        let generation = {
             let mut g = self.lock();
+            g.generation += 1;
             g.pairing = Some(Pairing::new()?);
             g.running = Some(Running {
                 port,
-                addresses: opened,
-                stop,
+                everywhere,
+                listeners,
+                generation: g.generation,
             });
+            g.generation
+        };
+        self.changed();
+        // A cable plugged in (or unplugged) while sharing: follow it.
+        let me = self.clone();
+        tauri::async_runtime::spawn(async move {
+            loop {
+                tokio::time::sleep(ADDRESS_CHECK).await;
+                if !me.refresh_addresses(generation).await {
+                    break;
+                }
+            }
+        });
+        Ok(())
+    }
+
+    /// Serve on one address; the sender stops it.
+    async fn listen_on(
+        self: &Arc<Self>,
+        ip: IpAddr,
+        port: u16,
+    ) -> Result<oneshot::Sender<()>, String> {
+        let listener = tokio::net::TcpListener::bind(SocketAddr::new(ip, port))
+            .await
+            .map_err(|e| {
+                tracing::warn!("cannot listen on {ip}:{port}: {e}");
+                format!("{ip}:{port}: {e}")
+            })?;
+        let (tx, rx) = oneshot::channel::<()>();
+        let router = Router::new()
+            .route("/ws", get(ws_upgrade))
+            .route("/api/send", post(upload).layer(DefaultBodyLimit::disable()))
+            .fallback(page)
+            .with_state(self.clone());
+        tauri::async_runtime::spawn(async move {
+            let serve = axum::serve(
+                listener,
+                router.into_make_service_with_connect_info::<SocketAddr>(),
+            )
+            .with_graceful_shutdown(async {
+                let _ = rx.await;
+            });
+            if let Err(e) = serve.await {
+                tracing::warn!("server on {ip}:{port} stopped: {e}");
+            }
+        });
+        Ok(tx)
+    }
+
+    /// Add servers for new addresses (a cable was plugged in) and stop those
+    /// whose address went away. False once this sharing session is over.
+    async fn refresh_addresses(self: &Arc<Self>, generation: u64) -> bool {
+        let (port, everywhere, have) = {
+            let g = self.lock();
+            match &g.running {
+                Some(r) if r.generation == generation => (r.port, r.everywhere, r.addresses()),
+                _ => return false,
+            }
+        };
+        let Ok(wanted) = listen_addresses(everywhere) else {
+            return true;
+        };
+        let mut added = Vec::new();
+        for ip in wanted.iter().filter(|ip| !have.contains(ip)) {
+            if let Ok(stop) = self.listen_on(*ip, port).await {
+                tracing::info!("now also sharing on {ip} (new network or cable)");
+                added.push((*ip, stop));
+            }
+        }
+        let gone: Vec<IpAddr> = have.into_iter().filter(|ip| !wanted.contains(ip)).collect();
+        if added.is_empty() && gone.is_empty() {
+            return true;
+        }
+        {
+            let mut g = self.lock();
+            match g.running.as_mut() {
+                Some(r) if r.generation == generation => {
+                    r.listeners.extend(added);
+                    let (keep, stop): (Vec<_>, Vec<_>) = r
+                        .listeners
+                        .drain(..)
+                        .partition(|(ip, _)| !gone.contains(ip));
+                    r.listeners = keep;
+                    for (ip, tx) in stop {
+                        tracing::info!("stopped sharing on {ip} (network or cable gone)");
+                        let _ = tx.send(());
+                    }
+                }
+                // Stopped meanwhile: the new servers go too.
+                _ => {
+                    for (_, tx) in added {
+                        let _ = tx.send(());
+                    }
+                    return false;
+                }
+            }
         }
         self.changed();
-        Ok(())
+        true
     }
 
     /// Stop listening and disconnect every receiver.
@@ -366,7 +472,7 @@ impl Hub {
         let gone: Vec<u64> = {
             let mut g = self.lock();
             if let Some(r) = g.running.take() {
-                for s in r.stop {
+                for (_, s) in r.listeners {
                     let _ = s.send(());
                 }
             }
@@ -494,7 +600,7 @@ impl Hub {
         self.lock()
             .running
             .as_ref()
-            .map(|r| r.addresses.clone())
+            .map(|r| r.addresses())
             .unwrap_or_default()
     }
 
@@ -723,6 +829,127 @@ async fn page(AxState(hub): AxState<Arc<Hub>>, uri: Uri, headers: HeaderMap) -> 
     res
 }
 
+// ---------- Files from a phone (DeskLab Link) ----------
+
+#[derive(Deserialize)]
+struct SendQuery {
+    name: String,
+}
+
+/// POST /api/send?name=… with the file as the body, from an allowed device
+/// (its id and key in the X-DeskSpan-Device / X-DeskSpan-Key headers).
+/// Streamed into Downloads under a free name; never overwrites.
+async fn upload(
+    AxState(hub): AxState<Arc<Hub>>,
+    Query(q): Query<SendQuery>,
+    headers: HeaderMap,
+    body: Body,
+) -> Response {
+    if !same_origin(&headers) {
+        return StatusCode::FORBIDDEN.into_response();
+    }
+    let get = |n: &str| headers.get(n).and_then(|v| v.to_str().ok()).unwrap_or("");
+    let (id, key) = (get("x-deskspan-device"), get("x-deskspan-key"));
+    if hub.lock().devices.check(id, key).is_none() {
+        return (StatusCode::UNAUTHORIZED, "this device isn't allowed").into_response();
+    }
+    let Ok(dir) = hub.app.path().download_dir() else {
+        return (StatusCode::INTERNAL_SERVER_ERROR, "no Downloads folder").into_response();
+    };
+    match save_upload(&dir, &safe_name(&q.name), body).await {
+        Ok(name) => (
+            StatusCode::OK,
+            [(header::CONTENT_TYPE, "application/json")],
+            serde_json::json!({ "saved": name }).to_string(),
+        )
+            .into_response(),
+        Err(e) => {
+            tracing::warn!("receiving a file: {e}");
+            (StatusCode::INTERNAL_SERVER_ERROR, e).into_response()
+        }
+    }
+}
+
+/// Write the body to `dir` under a free version of `name` (through a hidden
+/// part file, so a broken transfer leaves no half file). Returns the name.
+async fn save_upload(dir: &Path, name: &str, body: Body) -> Result<String, String> {
+    use tokio::io::AsyncWriteExt;
+    tokio::fs::create_dir_all(dir)
+        .await
+        .map_err(|e| format!("cannot open {}: {e}", dir.display()))?;
+    let part = dir.join(format!(".{name}.deskspan-part"));
+    let mut file = tokio::fs::File::create(&part)
+        .await
+        .map_err(|e| format!("cannot save {name}: {e}"))?;
+    let mut stream = body.into_data_stream();
+    let mut size: u64 = 0;
+    let result: Result<(), String> = async {
+        while let Some(chunk) = stream.next().await {
+            let chunk = chunk.map_err(|e| format!("the transfer broke off: {e}"))?;
+            size += chunk.len() as u64;
+            if size > MAX_UPLOAD {
+                return Err("the file is larger than 8 GB".into());
+            }
+            file.write_all(&chunk)
+                .await
+                .map_err(|e| format!("cannot save {name}: {e}"))?;
+        }
+        file.flush()
+            .await
+            .map_err(|e| format!("cannot save {name}: {e}"))
+    }
+    .await;
+    drop(file);
+    if let Err(e) = result {
+        let _ = tokio::fs::remove_file(&part).await;
+        return Err(e);
+    }
+    let dest = free_path(dir, name);
+    tokio::fs::rename(&part, &dest)
+        .await
+        .map_err(|e| format!("cannot save {name}: {e}"))?;
+    Ok(dest
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_else(|| name.to_string()))
+}
+
+/// A file name from a phone, made safe: no folders, no control or reserved
+/// characters, not hidden, not empty, at most 120 characters.
+pub fn safe_name(raw: &str) -> String {
+    let base = raw.rsplit(['/', '\\']).next().unwrap_or("");
+    let cleaned: String = base
+        .chars()
+        .filter(|c| !c.is_control() && !"<>:\"|?*".contains(*c))
+        .take(120)
+        .collect();
+    let cleaned = cleaned
+        .trim()
+        .trim_start_matches('.')
+        .trim_end_matches(['.', ' ']);
+    if cleaned.is_empty() {
+        "file from phone".into()
+    } else {
+        cleaned.to_string()
+    }
+}
+
+/// `name`, or `name (2)`, `name (3)`… keeping the extension, whichever is free.
+fn free_path(dir: &Path, name: &str) -> std::path::PathBuf {
+    let first = dir.join(name);
+    if !first.exists() {
+        return first;
+    }
+    let (stem, ext) = match name.rfind('.') {
+        Some(i) if i > 0 => (&name[..i], &name[i..]),
+        _ => (name, ""),
+    };
+    (2..10_000)
+        .map(|n| dir.join(format!("{stem} ({n}){ext}")))
+        .find(|p| !p.exists())
+        .unwrap_or(first)
+}
+
 // ---------- WebSocket: pairing and signalling ----------
 
 /// Browsers send Origin; it must be this server (no other web page may
@@ -841,6 +1068,7 @@ async fn receiver(hub: Arc<Hub>, socket: WebSocket, addr: SocketAddr) {
                 address: address.clone(),
                 since: devices::now(),
                 screen,
+                screen_on: false,
                 tx: tx.clone(),
             },
         );
@@ -852,13 +1080,6 @@ async fn receiver(hub: Arc<Hub>, socket: WebSocket, addr: SocketAddr) {
         host: &host,
         control: device.control,
     });
-    hub.media(MediaEvent::Joined(crate::media::Join {
-        session,
-        device_id: device.id.clone(),
-        name: device.name.clone(),
-        screen,
-        extend: device.extend,
-    }));
     hub.changed();
 
     // 3. Signalling until the receiver goes.
@@ -876,6 +1097,61 @@ async fn receiver(hub: Arc<Hub>, socket: WebSocket, addr: SocketAddr) {
                 });
             }
             Inbound::Hello { .. } => {}
+            Inbound::ScreenStart => {
+                // Its current screen and extend choice (may have changed).
+                let start = {
+                    let mut g = hub.lock();
+                    let extend = g
+                        .devices
+                        .list()
+                        .into_iter()
+                        .find(|d| d.id == device.id)
+                        .map(|d| d.extend)
+                        .unwrap_or(device.extend);
+                    match g.sessions.get_mut(&session) {
+                        Some(s) if !s.screen_on => {
+                            s.screen_on = true;
+                            Some((s.screen, extend))
+                        }
+                        _ => None,
+                    }
+                };
+                if let Some((screen, extend)) = start {
+                    hub.media(MediaEvent::Joined(crate::media::Join {
+                        session,
+                        device_id: device.id.clone(),
+                        name: device.name.clone(),
+                        screen,
+                        extend,
+                    }));
+                    hub.changed();
+                }
+            }
+            Inbound::ScreenStop => {
+                let was_on = hub
+                    .lock()
+                    .sessions
+                    .get_mut(&session)
+                    .map(|s| std::mem::replace(&mut s.screen_on, false))
+                    .unwrap_or(false);
+                if was_on {
+                    hub.media(MediaEvent::Left { session });
+                    hub.changed();
+                }
+            }
+            Inbound::Sent { count } => {
+                let what = if count == 1 {
+                    "1 file".to_string()
+                } else {
+                    format!("{count} files")
+                };
+                crate::notify(
+                    &hub.app,
+                    &format!("{what} from {}", device.name),
+                    "Saved in Downloads.",
+                );
+                let _ = hub.app.emit("files-received", (&device.name, count));
+            }
             msg => hub.media(MediaEvent::Signal { session, msg }),
         }
     }
@@ -938,6 +1214,26 @@ mod tests {
         ] {
             assert_eq!(asset_key(bad), None, "{bad}");
         }
+    }
+
+    #[test]
+    fn phone_file_names_are_made_safe() {
+        assert_eq!(safe_name("IMG_0001.HEIC"), "IMG_0001.HEIC");
+        assert_eq!(safe_name("../../etc/passwd"), "passwd");
+        assert_eq!(safe_name("C:\\Windows\\a:b?.txt"), "ab.txt");
+        assert_eq!(safe_name(".hidden"), "hidden");
+        assert_eq!(safe_name("   "), "file from phone");
+        assert_eq!(safe_name(&"x".repeat(300)).len(), 120);
+    }
+
+    #[test]
+    fn free_names_never_overwrite() {
+        let dir = tempfile::tempdir().unwrap();
+        assert_eq!(free_path(dir.path(), "a.jpg"), dir.path().join("a.jpg"));
+        std::fs::write(dir.path().join("a.jpg"), b"x").unwrap();
+        assert_eq!(free_path(dir.path(), "a.jpg"), dir.path().join("a (2).jpg"));
+        std::fs::write(dir.path().join("notes"), b"x").unwrap();
+        assert_eq!(free_path(dir.path(), "notes"), dir.path().join("notes (2)"));
     }
 
     #[test]

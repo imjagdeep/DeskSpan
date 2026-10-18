@@ -36,7 +36,6 @@ pub struct Yuv {
     pub h: u32,
 }
 
-
 struct Ivars {
     tx: SyncSender<Yuv>,
 }

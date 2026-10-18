@@ -11,7 +11,7 @@
 // instead). Not part of the app; testing only, listens on 127.0.0.1.
 
 import { createServer } from "node:http";
-import { readFile } from "node:fs/promises";
+import { readFile, mkdir, writeFile } from "node:fs/promises";
 import { randomBytes, randomInt, createHash, timingSafeEqual } from "node:crypto";
 import { extname, join, normalize } from "node:path";
 import { createInterface } from "node:readline";
@@ -19,6 +19,8 @@ import { fileURLToPath } from "node:url";
 import { WebSocketServer } from "ws";
 
 const PORT = Number(process.argv[2] || 8130);
+// Files "sent from the phone" land here (DEVHOST_INBOX overrides).
+const INBOX = process.env.DEVHOST_INBOX || join(fileURLToPath(new URL("..", import.meta.url)), "tools", ".inbox");
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
 const RECEIVER = join(ROOT, "dist", "receiver");
 const TYPES = { ".html": "text/html", ".js": "text/javascript", ".css": "text/css", ".png": "image/png", ".webmanifest": "application/manifest+json" };
@@ -38,7 +40,9 @@ const sha = (s) => createHash("sha256").update(s).digest("hex");
 const same = (a, b) => a.length === b.length && timingSafeEqual(Buffer.from(a), Buffer.from(b));
 
 const server = createServer(async (req, res) => {
-  const path = new URL(req.url, "http://x").pathname;
+  const url = new URL(req.url, "http://x");
+  const path = url.pathname;
+  if (path === "/api/send" && req.method === "POST") return receive(req, res, url);
   let file;
   if (path === "/" || path === "/index.html") file = join(RECEIVER, "index.html");
   else if (path === "/fake-host") file = join(ROOT, "tools", "fake-host.html");
@@ -60,6 +64,23 @@ const server = createServer(async (req, res) => {
     res.writeHead(404).end();
   }
 });
+
+// Same checks as server.rs: an allowed device's id + key, a cleaned name.
+async function receive(req, res, url) {
+  const d = devices.get(req.headers["x-deskspan-device"] ?? "");
+  if (!d || !same(d.keyHash, sha(String(req.headers["x-deskspan-key"] ?? "")))) {
+    res.writeHead(401).end("this device isn't allowed");
+    return;
+  }
+  const raw = url.searchParams.get("name") ?? "";
+  const name = raw.split(/[\\/]/).pop().replace(/[\u0000-\u001f<>:"|?*]/g, "").replace(/^\.+/, "").trim() || "file from phone";
+  const chunks = [];
+  for await (const c of req) chunks.push(c);
+  await mkdir(INBOX, { recursive: true });
+  await writeFile(join(INBOX, name), Buffer.concat(chunks));
+  console.log(`received ${name} (${Buffer.concat(chunks).length} bytes)`);
+  res.writeHead(200, { "Content-Type": "application/json" }).end(JSON.stringify({ saved: name }));
+}
 
 const rl = process.env.DEVHOST_ASK ? createInterface({ input: process.stdin }) : null;
 const ask = (name) =>
@@ -130,9 +151,12 @@ function onReceiver(ws) {
       sessions.set(session, ws);
       say({ t: "welcome", id, key, host: "dev-host", control });
       console.log(`welcome ${m.name} (session ${session}, screen ${JSON.stringify(m.screen)})`);
-      host?.send(JSON.stringify({ t: "join", session }));
       return;
     }
+    // The picture starts and stops on request (DeskLab Link home page).
+    if (session && m.t === "screen-start") host?.send(JSON.stringify({ t: "join", session }));
+    if (session && m.t === "screen-stop") host?.send(JSON.stringify({ t: "leave", session }));
+    if (session && m.t === "sent") console.log(`sent batch: ${m.count} files`);
     if (session && (m.t === "answer" || m.t === "ice")) host?.send(JSON.stringify({ ...m, session }));
     if (session && m.t === "screen") console.log(`session ${session} screen ${m.w}x${m.h}@${m.dpr}`);
   });

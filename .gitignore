@@ -26,3 +26,4 @@ desktop.ini
 # --- Tauri generated ---
 src-tauri/gen/
 
+tools/.inbox/

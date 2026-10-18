@@ -23,6 +23,15 @@ const leaveBtn = $<HTMLButtonElement>("leave");
 const fsPrompt = $<HTMLElement>("fs-prompt");
 const fsGo = $<HTMLButtonElement>("fs-go");
 const fsSkip = $<HTMLButtonElement>("fs-skip");
+const home = $<HTMLElement>("home");
+const goScreen = $<HTMLButtonElement>("go-screen");
+const goSend = $<HTMLButtonElement>("go-send");
+const sendPanel = $<HTMLElement>("send");
+const filesInput = $<HTMLInputElement>("files");
+const cameraInput = $<HTMLInputElement>("camera");
+const sendList = $<HTMLUListElement>("send-list");
+const sendBack = $<HTMLButtonElement>("send-back");
+const homeBtn = $<HTMLButtonElement>("home-btn");
 
 // ---------- saved device (browser storage; may be unavailable) ----------
 
@@ -66,7 +75,7 @@ let token: string | null = null;
 
 // ---------- screens of the panel ----------
 
-type View = "connecting" | "code" | "wait" | "message" | "live";
+type View = "connecting" | "code" | "wait" | "message" | "live" | "home" | "send";
 
 function show(view: View, heading = "", body = "", canRetry = false) {
   const live = view === "live";
@@ -75,6 +84,8 @@ function show(view: View, heading = "", body = "", canRetry = false) {
   document.body.classList.toggle("live", live);
   panel.hidden = live;
   codeForm.hidden = view !== "code";
+  home.hidden = view !== "home";
+  sendPanel.hidden = view !== "send";
   actions.hidden = !canRetry;
   title.textContent = heading;
   text.textContent = body;
@@ -94,6 +105,45 @@ let leaving = false;
 let welcomed = false;
 let retryDelay = 1000;
 let pendingAuth: Auth | null = null;
+let host = "the computer";
+/** This device's id and key, for uploads (also kept if storage is blocked). */
+let creds: { id: string; key: string } | null = saved.id && saved.key ? { id: saved.id, key: saved.key } : null;
+
+// The screen comes back by itself after a reconnect if it was in use.
+const AUTO_SCREEN = "deskspan-auto-screen";
+function autoScreen(): boolean {
+  try {
+    return localStorage.getItem(AUTO_SCREEN) === "1";
+  } catch {
+    return false;
+  }
+}
+function setAutoScreen(on: boolean) {
+  try {
+    if (on) localStorage.setItem(AUTO_SCREEN, "1");
+    else localStorage.removeItem(AUTO_SCREEN);
+  } catch {
+    // Not remembered: the home page shows after a reconnect.
+  }
+}
+
+function showHome() {
+  show("home", `Connected to ${host}`, "What would you like to do?");
+}
+
+function startScreen() {
+  setAutoScreen(true);
+  send({ t: "screen-start" });
+  show("message", `Connected to ${host}`, "Starting the screen…");
+  requestWake();
+}
+
+function stopScreen() {
+  setAutoScreen(false);
+  send({ t: "screen-stop" });
+  closePeer();
+  showHome();
+}
 
 function screenInfo(): ScreenInfo {
   return { w: Math.round(window.innerWidth), h: Math.round(window.innerHeight), dpr: window.devicePixelRatio || 1 };
@@ -176,10 +226,12 @@ async function onMessage(raw: string) {
       if (m.key) {
         saved = { id: m.id, key: m.key, name: deviceName() };
         save(saved);
+        creds = { id: m.id, key: m.key };
       }
+      host = m.host;
       barHost.textContent = m.host;
-      show("message", `Connected to ${m.host}`, "Waiting for the picture…");
-      requestWake();
+      if (autoScreen()) startScreen();
+      else showHome();
       break;
     case "offer":
       await onOffer(m.sdp);
@@ -271,6 +323,76 @@ retry.addEventListener("click", () => {
   ws = null;
   connect();
 });
+
+goScreen.addEventListener("click", startScreen);
+homeBtn.addEventListener("click", stopScreen);
+goSend.addEventListener("click", () => show("send", `Send to ${host}`, "Files go to its Downloads folder."));
+sendBack.addEventListener("click", showHome);
+filesInput.addEventListener("change", () => void sendFiles(filesInput));
+cameraInput.addEventListener("change", () => void sendFiles(cameraInput));
+
+// ---------- send files (DeskLab Link) ----------
+
+/** One file to /api/send, with progress. Resolves with the saved name. */
+function upload(file: File, bar: HTMLProgressElement): Promise<string> {
+  return new Promise((resolve, reject) => {
+    if (!creds) {
+      reject(new Error("This device isn't paired any more. Reconnect with a code."));
+      return;
+    }
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", `/api/send?name=${encodeURIComponent(file.name || "photo.jpg")}`);
+    xhr.setRequestHeader("X-DeskSpan-Device", creds.id);
+    xhr.setRequestHeader("X-DeskSpan-Key", creds.key);
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable) bar.value = e.loaded / e.total;
+    };
+    xhr.onload = () => {
+      if (xhr.status === 200) {
+        try {
+          resolve((JSON.parse(xhr.responseText) as { saved?: string }).saved ?? file.name);
+        } catch {
+          resolve(file.name);
+        }
+      } else reject(new Error(xhr.responseText || `failed (${xhr.status})`));
+    };
+    xhr.onerror = () => reject(new Error("the connection broke off"));
+    xhr.send(file);
+  });
+}
+
+let sending = false;
+async function sendFiles(picker: HTMLInputElement) {
+  const files = Array.from(picker.files ?? []);
+  picker.value = "";
+  if (files.length === 0 || sending) return;
+  sending = true;
+  let sent = 0;
+  for (const file of files) {
+    const li = document.createElement("li");
+    const name = document.createElement("span");
+    name.className = "name";
+    name.textContent = file.name || "photo";
+    const bar = document.createElement("progress");
+    bar.max = 1;
+    bar.value = 0;
+    li.append(name, bar);
+    sendList.prepend(li);
+    try {
+      const saved = await upload(file, bar);
+      bar.remove();
+      name.textContent = `${saved} ✓`;
+      name.classList.add("done");
+      sent++;
+    } catch (e) {
+      bar.remove();
+      name.textContent = `${file.name}: ${e instanceof Error ? e.message : "not sent"}`;
+      name.classList.add("failed");
+    }
+  }
+  sending = false;
+  if (sent > 0) send({ t: "sent", count: sent });
+}
 
 leaveBtn.addEventListener("click", () => {
   leaving = true;
