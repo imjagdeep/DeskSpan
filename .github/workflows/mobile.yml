@@ -23,10 +23,10 @@ jobs:
         with: { workspaces: mobile/src-tauri }
       - run: npm ci || npm install
       - name: Android project
-        env: { NDK_HOME: "${{ env.ANDROID_NDK_LATEST_HOME }}" }
-        run: npx tauri android init --ci
+        run: |
+          echo "NDK_HOME=$ANDROID_NDK_LATEST_HOME" >> "$GITHUB_ENV"
+          NDK_HOME="$ANDROID_NDK_LATEST_HOME" npx tauri android init --ci
       - name: Build APK (debug-signed, installable for testing)
-        env: { NDK_HOME: "${{ env.ANDROID_NDK_LATEST_HOME }}" }
         run: npx tauri android build --apk --debug --target aarch64
       - uses: actions/upload-artifact@v4
         with:
