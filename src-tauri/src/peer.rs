@@ -46,7 +46,7 @@ pub async fn run(
     // Our UDP sockets: one per address the server listens on.
     let mut sockets: Vec<Arc<UdpSocket>> = Vec::new();
     for ip in hub.listen_ips() {
-        if let IpAddr::V4(_) = ip {
+        if ip.is_ipv4() {
             match UdpSocket::bind(SocketAddr::new(ip, 0)).await {
                 Ok(s) => sockets.push(Arc::new(s)),
                 Err(e) => tracing::warn!("no UDP socket on {ip}: {e}"),
