@@ -231,8 +231,10 @@ fn grab(monitor: &xcap::Monitor) -> Result<(Vec<u8>, u32, u32), String> {
     if crate::sck::available() {
         let id = monitor.id().map_err(|e| format!("screen id: {e}"))?;
         let scale = monitor.scale_factor().unwrap_or(1.0) as f64;
-        let mut w = (monitor.width().map_err(|e| format!("screen size: {e}"))? as f64 * scale) as u32;
-        let mut h = (monitor.height().map_err(|e| format!("screen size: {e}"))? as f64 * scale) as u32;
+        let mut w =
+            (monitor.width().map_err(|e| format!("screen size: {e}"))? as f64 * scale) as u32;
+        let mut h =
+            (monitor.height().map_err(|e| format!("screen size: {e}"))? as f64 * scale) as u32;
         if w > MAX_WIDTH {
             w /= 2;
             h /= 2;
