@@ -90,7 +90,9 @@ impl Usb {
             g.preparing = true;
             g.error = None;
         }
-        let found = find_adb(data_dir).map(Ok).unwrap_or_else(|| download(data_dir));
+        let found = find_adb(data_dir)
+            .map(Ok)
+            .unwrap_or_else(|| download(data_dir));
         let mut g = self.lock();
         g.preparing = false;
         match found {
@@ -322,9 +324,16 @@ fn download(data_dir: &Path) -> Result<PathBuf, String> {
             .get(&url)
             .send()
             .await
-            .map_err(|e| format!("cannot download Google's Android tools ({e}); check the internet connection"))?;
+            .map_err(|e| {
+                format!(
+                    "cannot download Google's Android tools ({e}); check the internet connection"
+                )
+            })?;
         if !res.status().is_success() {
-            return Err(format!("cannot download Google's Android tools (HTTP {})", res.status()));
+            return Err(format!(
+                "cannot download Google's Android tools (HTTP {})",
+                res.status()
+            ));
         }
         res.bytes()
             .await
@@ -341,8 +350,8 @@ fn download(data_dir: &Path) -> Result<PathBuf, String> {
 
 /// Unpack `platform-tools/…` from the zip (nothing outside it).
 fn unpack(zip: &[u8], data_dir: &Path) -> Result<(), String> {
-    let mut archive =
-        zip::ZipArchive::new(Cursor::new(zip)).map_err(|e| format!("the download is damaged: {e}"))?;
+    let mut archive = zip::ZipArchive::new(Cursor::new(zip))
+        .map_err(|e| format!("the download is damaged: {e}"))?;
     for i in 0..archive.len() {
         let mut file = archive
             .by_index(i)
