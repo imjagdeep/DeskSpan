@@ -161,10 +161,13 @@ function send(m: Outbound) {
   if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(m));
 }
 
+// A device already paired uses its key even when opened with a pairing link
+// (DeskSpan opens the page with one over the USB cable); the link is the
+// fallback if the key stopped working.
 function authNow(): Auth | null {
   if (pendingAuth) return pendingAuth;
-  if (token) return { kind: "token", token };
   if (saved.id && saved.key) return { kind: "device", id: saved.id, key: saved.key };
+  if (token) return { kind: "token", token };
   return null;
 }
 
@@ -207,14 +210,22 @@ async function onMessage(raw: string) {
   const m = parseInbound(raw);
   if (!m) return;
   switch (m.t) {
-    case "need-code":
-      // Saved key no longer valid, or the link expired: start over with a code.
-      token = null;
+    case "need-code": {
+      // Saved key no longer valid, or the link expired.
+      const hadKey = !!(saved.id && saved.key);
       pendingAuth = null;
       saved = { name: saved.name };
+      creds = null;
       save(saved);
+      if (hadKey && token) {
+        // Try the pairing link this page was opened with.
+        send({ t: "hello", name: deviceName(), screen: screenInfo(), auth: { kind: "token", token } });
+        break;
+      }
+      token = null;
       show("code", "Enter the code", "Open DeskSpan on the computer: the code is under the QR code.");
       break;
+    }
     case "wrong-code":
       pendingAuth = null;
       show("code", "That code didn't match", m.left > 0 ? `${m.left} tries left before the computer makes a new code.` : "The computer made a new code. Type the new one.");

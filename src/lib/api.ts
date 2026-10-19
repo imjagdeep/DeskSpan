@@ -33,12 +33,27 @@ export interface SessionView {
   screen: ScreenInfo | null;
   /** Using this computer's screen (not just connected) */
   screen_on: boolean;
+  /** Connected by USB cable */
+  via_usb: boolean;
 }
 
 export interface RequestView {
   id: string;
   name: string;
   address: string;
+}
+
+export interface UsbPhone {
+  serial: string;
+  model: string;
+  /** "ready", "allow" (tap Allow on the phone), "offline" */
+  state: "ready" | "allow" | "offline";
+}
+
+export interface UsbView {
+  setup: "off" | "preparing" | "ready" | "error";
+  error: string | null;
+  phones: UsbPhone[];
 }
 
 export interface HubStatus {
@@ -51,6 +66,7 @@ export interface HubStatus {
   expires_in: number;
   sessions: SessionView[];
   requests: RequestView[];
+  usb: UsbView;
 }
 
 export interface VideoStatus {
@@ -90,6 +106,12 @@ export const api = {
   videoStatus: () => invoke<VideoStatus>("video_status"),
   /** A fresh QR link and code; the old ones stop working. */
   newPairing: () => invoke<void>("new_pairing"),
+  /** Android by USB cable: find or download Google's adb, then watch the cable. */
+  usbSetup: () => invoke<void>("usb_setup"),
+  usbOff: () => invoke<void>("usb_off"),
+  /** Windows: the virtual display driver for extending. */
+  extendDriverStatus: () => invoke<"installed" | "missing" | "not-needed">("extend_driver_status"),
+  installExtendDriver: () => invoke<void>("install_extend_driver"),
   answerRequest: (id: string, allow: boolean, control: boolean) => invoke<void>("answer_request", { id, allow, control }),
 
   devices: () => invoke<Device[]>("devices_list"),

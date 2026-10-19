@@ -118,6 +118,7 @@ export function Share() {
                 <div>
                   {s.name}
                   <span className={s.screen_on ? "badge" : "badge muted-badge"}>{s.screen_on ? "Screen" : "Connected"}</span>
+                  {s.via_usb && <span className="badge muted-badge">USB cable</span>}
                 </div>
                 <div className="device-meta">
                   {s.address}
@@ -128,7 +129,107 @@ export function Share() {
           ))
         )}
       </div>
+      <ExtendDriverCard />
+      <UsbCard />
       <Help />
+    </div>
+  );
+}
+
+/** Windows: extending needs the virtual display driver, installed once. */
+function ExtendDriverCard() {
+  const [status, setStatus] = useState<"installed" | "missing" | "not-needed" | null>(null);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    api.extendDriverStatus().then(setStatus).catch(() => setStatus(null));
+  }, []);
+  if (status !== "missing") return null;
+  const install = async () => {
+    setBusy(true);
+    try {
+      await api.installExtendDriver();
+      setStatus(await api.extendDriverStatus());
+      toast("Display driver installed: devices set to Extend get their own monitor");
+    } catch (e) {
+      toastError(e);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="card">
+      <h2>Extend on Windows</h2>
+      <p className="muted small">
+        To use a device as an extra monitor (not just a copy), Windows needs a display driver: the open-source Virtual Display Driver, signed
+        by the SignPath Foundation. DeskSpan downloads it from GitHub, checks it, and installs it. Windows asks for administrator permission
+        once.
+      </p>
+      <button className="primary" disabled={busy} onClick={() => void install()}>
+        {busy ? "Installing… (accept the Windows prompt)" : "Install display driver"}
+      </button>
+    </div>
+  );
+}
+
+/** Android phones by USB cable (adb). */
+function UsbCard() {
+  const hub = useHub();
+  const [busy, setBusy] = useState(false);
+  if (!hub) return null;
+  const u = hub.usb;
+  const setUp = async () => {
+    setBusy(true);
+    try {
+      await api.usbSetup();
+      await refreshHub();
+    } catch (e) {
+      toastError(e);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="card">
+      <div className="card-head">
+        <h2>Android by USB cable</h2>
+        {u.setup === "ready" && (
+          <button className="link" onClick={() => void api.usbOff().then(refreshHub).catch(toastError)}>
+            Turn off
+          </button>
+        )}
+      </div>
+      {u.setup !== "ready" ? (
+        <>
+          <p className="muted small">
+            Faster and steadier than Wi-Fi. Uses Google's Android tools (adb); if they aren't on this computer, DeskSpan downloads them
+            once from Google (about 10–16 MB).
+          </p>
+          {u.error && <p className="error-text small">{u.error}</p>}
+          <button className="primary" disabled={busy || u.setup === "preparing"} onClick={() => void setUp()}>
+            {u.setup === "preparing" || busy ? "Setting up…" : "Set up USB cable"}
+          </button>
+        </>
+      ) : u.phones.length === 0 ? (
+        <p className="muted small">
+          Plug the phone in. Once only, on the phone: Settings › About phone › Software information › tap <b>Build number</b> 7 times, then
+          Settings › Developer options › turn on <b>USB debugging</b>. DeskSpan then opens itself on the phone.
+        </p>
+      ) : (
+        u.phones.map((p) => (
+          <div key={p.serial} className="list-row">
+            <div>
+              <div>{p.model}</div>
+              <div className="device-meta">
+                {p.state === "ready"
+                  ? "Connected by cable · DeskSpan opens on the phone"
+                  : p.state === "allow"
+                    ? "Tap Allow on the phone (USB debugging)"
+                    : "Not responding: unplug and plug in again"}
+              </div>
+            </div>
+          </div>
+        ))
+      )}
     </div>
   );
 }

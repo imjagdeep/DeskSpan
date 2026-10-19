@@ -4,6 +4,7 @@
 //! the encoded screen (video.rs, Cisco's OpenH264 via h264lib.rs).
 
 mod account;
+mod adb;
 mod desklab;
 mod devices;
 mod h264lib;
@@ -20,6 +21,8 @@ mod tray;
 #[cfg(target_os = "macos")]
 mod vdisplay;
 mod video;
+#[cfg(windows)]
+mod winvdd;
 
 use server::{Decision, Hub};
 use settings::Settings;
@@ -129,6 +132,59 @@ fn hub_status(hub: State<'_, Arc<Hub>>) -> server::Status {
 #[tauri::command]
 fn video_status(video: State<'_, video::Video>) -> video::VideoStatus {
     video.status()
+}
+
+/// Windows: is the extend display driver installed? (Always "n/a" elsewhere.)
+#[tauri::command]
+fn extend_driver_status() -> &'static str {
+    #[cfg(windows)]
+    {
+        if winvdd::installed() {
+            "installed"
+        } else {
+            "missing"
+        }
+    }
+    #[cfg(not(windows))]
+    {
+        "not-needed"
+    }
+}
+
+/// Windows: install the extend display driver (one administrator prompt).
+#[tauri::command]
+async fn install_extend_driver() -> CmdResult<()> {
+    #[cfg(windows)]
+    {
+        tauri::async_runtime::spawn_blocking(winvdd::install)
+            .await
+            .map_err(|e| format!("cannot run the installer: {e}"))?
+    }
+    #[cfg(not(windows))]
+    {
+        Ok(())
+    }
+}
+
+/// Android phones by USB cable: find or download adb, remember it's on.
+#[tauri::command]
+async fn usb_setup(state: State<'_, AppState>, hub: State<'_, Arc<Hub>>) -> CmdResult<()> {
+    hub.inner().usb_setup().await?;
+    let mut s = state.settings().clone();
+    s.usb_cable = true;
+    s.save(&state.data_dir)?;
+    *state.settings() = s;
+    Ok(())
+}
+
+#[tauri::command]
+fn usb_off(state: State<'_, AppState>, hub: State<'_, Arc<Hub>>) -> CmdResult<()> {
+    hub.usb_off();
+    let mut s = state.settings().clone();
+    s.usb_cable = false;
+    s.save(&state.data_dir)?;
+    *state.settings() = s;
+    Ok(())
 }
 
 /// A fresh QR link and code; the old ones stop working.
@@ -341,6 +397,7 @@ pub fn run() {
                 tracing::warn!("{e}");
             }
             let start_now = settings.start_on_launch;
+            let usb_cable = settings.usb_cable;
             let hub = Hub::new(app.handle().clone(), &data_dir);
             let video = video::Video::new(data_dir.clone());
             media::start(
@@ -349,6 +406,15 @@ pub fn run() {
                 video.clone(),
                 data_dir.clone(),
             );
+            if usb_cable {
+                // Finds the adb set up before (no download unless it's gone).
+                let hub = hub.clone();
+                tauri::async_runtime::spawn(async move {
+                    if let Err(e) = hub.usb_setup().await {
+                        tracing::warn!("USB cable: {e}");
+                    }
+                });
+            }
             app.manage(hub);
             app.manage(video);
             app.manage(AppState {
@@ -390,6 +456,10 @@ pub fn run() {
             hub_status,
             video_status,
             new_pairing,
+            usb_setup,
+            extend_driver_status,
+            install_extend_driver,
+            usb_off,
             answer_request,
             devices_list,
             device_remove,
