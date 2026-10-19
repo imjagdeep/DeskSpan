@@ -397,7 +397,12 @@ impl Hub {
         let (tx, rx) = oneshot::channel::<()>();
         let router = Router::new()
             .route("/ws", get(ws_upgrade))
-            .route("/api/send", post(upload).layer(DefaultBodyLimit::disable()))
+            .route(
+                "/api/send",
+                post(upload)
+                    .options(upload_preflight)
+                    .layer(DefaultBodyLimit::disable()),
+            )
             .fallback(page)
             .with_state(self.clone());
         tauri::async_runtime::spawn(async move {
@@ -856,13 +861,25 @@ async fn upload(
     let Ok(dir) = hub.app.path().download_dir() else {
         return (StatusCode::INTERNAL_SERVER_ERROR, "no Downloads folder").into_response();
     };
+    let allow_origin = headers
+        .get(header::ORIGIN)
+        .and_then(|v| v.to_str().ok())
+        .filter(|o| app_origin(o))
+        .and_then(|o| HeaderValue::from_str(o).ok());
     match save_upload(&dir, &safe_name(&q.name), body).await {
-        Ok(name) => (
-            StatusCode::OK,
-            [(header::CONTENT_TYPE, "application/json")],
-            serde_json::json!({ "saved": name }).to_string(),
-        )
-            .into_response(),
+        Ok(name) => {
+            let mut res = (
+                StatusCode::OK,
+                [(header::CONTENT_TYPE, "application/json")],
+                serde_json::json!({ "saved": name }).to_string(),
+            )
+                .into_response();
+            if let Some(o) = allow_origin {
+                res.headers_mut()
+                    .insert(header::ACCESS_CONTROL_ALLOW_ORIGIN, o);
+            }
+            res
+        }
         Err(e) => {
             tracing::warn!("receiving a file: {e}");
             (StatusCode::INTERNAL_SERVER_ERROR, e).into_response()
@@ -958,11 +975,51 @@ fn same_origin(headers: &HeaderMap) -> bool {
     let host = headers.get(header::HOST).and_then(|v| v.to_str().ok());
     let origin = headers.get(header::ORIGIN).and_then(|v| v.to_str().ok());
     match (host, origin) {
+        (Some(_), Some(o)) if app_origin(o) => true,
         (Some(h), Some(o)) => o.strip_prefix("http://") == Some(h),
         // Not a browser (tools, tests): nothing to forge.
         (Some(_), None) => true,
         _ => false,
     }
+}
+
+/// The DeskSpan Screen app (iOS: tauri://localhost, Android:
+/// http(s)://tauri.localhost). Pairing still needs the code and the user's
+/// OK, and uploads the device key, so this only lets the app in the door.
+fn app_origin(origin: &str) -> bool {
+    matches!(
+        origin,
+        "tauri://localhost" | "http://tauri.localhost" | "https://tauri.localhost"
+    )
+}
+
+/// CORS answer for the app's upload (its page isn't served by us).
+async fn upload_preflight(headers: HeaderMap) -> Response {
+    let origin = headers
+        .get(header::ORIGIN)
+        .and_then(|v| v.to_str().ok())
+        .filter(|o| app_origin(o));
+    let Some(origin) = origin else {
+        return StatusCode::FORBIDDEN.into_response();
+    };
+    let mut res = StatusCode::NO_CONTENT.into_response();
+    let h = res.headers_mut();
+    if let Ok(v) = HeaderValue::from_str(origin) {
+        h.insert(header::ACCESS_CONTROL_ALLOW_ORIGIN, v);
+    }
+    h.insert(
+        header::ACCESS_CONTROL_ALLOW_METHODS,
+        HeaderValue::from_static("POST"),
+    );
+    h.insert(
+        header::ACCESS_CONTROL_ALLOW_HEADERS,
+        HeaderValue::from_static("x-deskspan-device, x-deskspan-key, content-type"),
+    );
+    h.insert(
+        header::ACCESS_CONTROL_MAX_AGE,
+        HeaderValue::from_static("600"),
+    );
+    res
 }
 
 async fn ws_upgrade(
@@ -1251,6 +1308,17 @@ mod tests {
             HeaderValue::from_static("https://evil.example"),
         );
         assert!(!same_origin(&h));
+        // The DeskSpan Screen app.
+        h.insert(
+            header::ORIGIN,
+            HeaderValue::from_static("tauri://localhost"),
+        );
+        assert!(same_origin(&h));
+        h.insert(
+            header::ORIGIN,
+            HeaderValue::from_static("http://tauri.localhost"),
+        );
+        assert!(same_origin(&h));
     }
 
     #[test]

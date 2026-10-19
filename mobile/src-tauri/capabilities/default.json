@@ -1,0 +1,8 @@
+{
+  "$schema": "../gen/schemas/mobile-schema.json",
+  "identifier": "default",
+  "description": "The connect page may scan QR codes.",
+  "windows": ["main"],
+  "platforms": ["iOS", "android"],
+  "permissions": ["core:default", "barcode-scanner:default"]
+}

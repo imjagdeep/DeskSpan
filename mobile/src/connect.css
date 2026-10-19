@@ -1,0 +1,24 @@
+/* The connect page, on top of the receiver's styles. */
+.manual {
+  gap: 8px;
+}
+
+.manual input {
+  margin-top: 6px;
+}
+
+.manual .primary {
+  margin-top: 4px;
+  align-self: stretch;
+}
+
+h2.muted {
+  font-size: 0.9rem;
+  font-weight: 600;
+  margin: 18px 0 6px;
+}
+
+.error {
+  color: var(--danger);
+  max-width: 24rem;
+}

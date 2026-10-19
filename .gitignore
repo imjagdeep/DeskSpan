@@ -27,3 +27,8 @@ desktop.ini
 src-tauri/gen/
 
 tools/.inbox/
+mobile/node_modules/
+mobile/dist/
+mobile/screen.html
+mobile/src-tauri/target/
+mobile/src-tauri/gen/schemas/
