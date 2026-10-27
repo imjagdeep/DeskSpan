@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { pictureRect, toScreen } from "./geometry";
 import { guessDeviceName, parseInbound } from "./protocol";
+import { label, summarize } from "./stats";
 
 describe("geometry", () => {
   const box = { left: 0, top: 0, width: 1000, height: 1000 };
@@ -47,5 +48,24 @@ describe("protocol", () => {
     expect(guessDeviceName("Mozilla/5.0 (Linux; Android 14; Pixel 8) Mobile", 5)).toBe("Android phone");
     expect(guessDeviceName("Mozilla/5.0 (Linux; Android 14; SM-X710)", 5)).toBe("Android tablet");
     expect(guessDeviceName("Mozilla/5.0 (Windows NT 10.0; Win64; x64)", 0)).toBe("Windows PC");
+  });
+});
+
+describe("stats", () => {
+  const pair = { type: "candidate-pair", nominated: true, state: "succeeded", currentRoundTripTime: 0.01 };
+  const v1 = { type: "inbound-rtp", kind: "video", framesPerSecond: 29.6, jitterBufferDelay: 2, jitterBufferEmittedCount: 100, framesDecoded: 100, totalDecodeTime: 0.5 };
+  const v2 = { ...v1, jitterBufferDelay: 3.2, jitterBufferEmittedCount: 130, framesDecoded: 130, totalDecodeTime: 0.62 };
+
+  it("adds network, buffer and decoding since the last report", () => {
+    const first = summarize([pair, v1], null);
+    const { summary } = summarize([pair, v2], first.video);
+    // 5 ms network + 1.2 s / 30 frames = 40 ms buffer + 0.12 s / 30 = 4 ms decoding
+    expect(summary).toEqual({ fps: 30, delay: 49 });
+    expect(label(summary)).toBe("30 fps · 49 ms");
+  });
+
+  it("says nothing before there is video", () => {
+    expect(summarize([pair], null).summary).toEqual({ fps: null, delay: null });
+    expect(label({ fps: null, delay: null })).toBe("");
   });
 });

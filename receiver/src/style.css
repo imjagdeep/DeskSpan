@@ -151,6 +151,17 @@ button.primary {
   z-index: 2;
 }
 
+.bar-stats {
+  padding: 0 6px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  font-size: 0.85em;
+}
+.bar-stats:empty {
+  display: none;
+}
+
 .bar-host {
   padding: 0 10px;
   color: var(--muted);

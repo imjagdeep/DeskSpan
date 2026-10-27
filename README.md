@@ -6,7 +6,7 @@ Use a phone, tablet, iPad or spare computer as a second screen for your Windows,
 
 Part of **DeskLab**, free tools by the same developer: [getdesklab.com](https://getdesklab.com/).
 
-> **Status: early development.** Pairing, the device list and the receiver page work; streaming your real screen (capture + encoding) is being built now. There is no release yet.
+> **Status: before the first release.** Mirror and extend work (extend tested on macOS; Windows uses the Virtual Display Driver), over Wi-Fi or an Android USB cable, with touch, pen and mouse control back on Windows and macOS. Sound and Linux control are still to come. There is no release yet.
 
 ## How it will work
 
@@ -22,16 +22,22 @@ Part of **DeskLab**, free tools by the same developer: [getdesklab.com](https://
 - Every new device needs the one-time QR link or code **and** your OK on the computer. Each allowed device gets its own key; the computer only stores a hash of it. Remove a device any time under Devices.
 - Control of the computer is off for a device until you allow it.
 
-## Plan
+## What works
 
-| | |
-|---|---|
-| 1 | Mirror a screen to a browser over Wi-Fi |
-| 2 | Hardware encoding, low latency, several screens |
-| 3 | Extend: virtual monitor on Windows ([Virtual Display Driver](https://github.com/VirtualDrivers/Virtual-Display-Driver), MIT), macOS and Linux |
-| 4 | Touch, pen and keyboard back to the computer |
-| 5 | Sound |
-| 6 | Polish and first release; native Android/iOS apps with USB later |
+| | Windows | macOS | Linux |
+|---|---|---|---|
+| Mirror a screen | yes | yes | yes |
+| Extend (an extra monitor) | yes, with the [Virtual Display Driver](https://github.com/VirtualDrivers/Virtual-Display-Driver) (MIT, installed once with your OK) | yes | not yet |
+| Touch, pen, mouse and scroll back | yes | yes (allow DeskSpan under Privacy & Security › Accessibility) | not yet |
+| Android USB cable (adb) | yes | yes | yes |
+| Sound | not yet | not yet | not yet |
+
+The device can be any phone, tablet, iPad or computer with a current browser, or the **DeskSpan Screen** Android app (`mobile/`). DeskLab Link on the phone's home page also sends files to the computer's Downloads.
+
+## Still to do
+
+- Sound; Linux extend and control; adaptive quality and a latency read-out.
+- Signed Windows installer (SmartScreen), then the first release.
 
 ## Develop
 
