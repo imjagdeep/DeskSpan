@@ -634,6 +634,11 @@ impl Hub {
         Ok(())
     }
 
+    /// Whether to send the computer's sound (read when a device connects).
+    pub fn sound_on(&self) -> bool {
+        crate::settings::Settings::load(&self.data_dir).sound
+    }
+
     /// Takes effect at once, also on a connected device.
     pub fn set_control(&self, id: &str, control: bool) -> Result<(), String> {
         {

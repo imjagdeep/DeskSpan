@@ -87,6 +87,7 @@ pub async fn run(
     let mut rtc = Rtc::builder()
         .clear_codecs()
         .enable_h264(true)
+        .enable_opus(true, false)
         .set_ice_lite(true)
         .build(Instant::now());
     for s in &sockets {
@@ -120,6 +121,14 @@ pub async fn run(
         Direction::SendOnly,
         Some("deskspan".into()),
         Some("screen".into()),
+        None,
+    );
+    // The computer's sound, in the same stream as the picture.
+    let audio_mid = api.add_media(
+        MediaKind::Audio,
+        Direction::SendOnly,
+        Some("deskspan".into()),
+        Some("sound".into()),
         None,
     );
     api.add_channel("input".into());
@@ -206,6 +215,8 @@ pub async fn run(
 
     let mut frames: Option<broadcast::Receiver<Arc<Frame>>> = None;
     let mut pt: Option<Pt> = None;
+    let mut sounds: Option<broadcast::Receiver<Arc<crate::audio::Packet>>> = None;
+    let mut audio_pt: Option<Pt> = None;
     let ended = 'outer: loop {
         // Drain everything the engine wants to do (the str0m contract).
         let timeout = loop {
@@ -242,6 +253,11 @@ pub async fn run(
                         match video.subscribe().await {
                             Ok(rx) => frames = Some(rx),
                             Err(e) => break 'outer Ended::Fatal(e),
+                        }
+                        // Sound if the computer can capture it and it's on.
+                        audio_pt = pick_opus(&mut rtc, audio_mid);
+                        if audio_pt.is_some() && hub.sound_on() {
+                            sounds = crate::audio::shared().subscribe();
                         }
                     }
                     Event::KeyframeRequest(_) => video.request_keyframe(),
@@ -312,6 +328,20 @@ pub async fn run(
                 Err(broadcast::error::RecvError::Lagged(_)) => video.request_keyframe(),
                 Err(broadcast::error::RecvError::Closed) => break Ended::Dropped("the picture stopped".into()),
             },
+            p = recv_sound(&mut sounds) => match p {
+                Ok(packet) => {
+                    if let (Some(pt), Some(w)) = (audio_pt, rtc.writer(audio_mid)) {
+                        let t = MediaTime::new(packet.rtp, Frequency::FORTY_EIGHT_KHZ);
+                        if let Err(e) = w.write(pt, packet.at, t, packet.data.clone()) {
+                            tracing::debug!("write sound: {e}");
+                        }
+                    }
+                }
+                // Behind: skip ahead (a click beats a growing delay).
+                Err(broadcast::error::RecvError::Lagged(_)) => {}
+                // The capture stopped (e.g. no sound device): carry on without.
+                Err(broadcast::error::RecvError::Closed) => sounds = None,
+            },
         }
     };
 
@@ -337,6 +367,24 @@ async fn recv_frame(
         Some(rx) => rx.recv().await,
         None => std::future::pending().await,
     }
+}
+
+/// The next sound packet, or never without sound.
+async fn recv_sound(
+    sounds: &mut Option<broadcast::Receiver<Arc<crate::audio::Packet>>>,
+) -> Result<Arc<crate::audio::Packet>, broadcast::error::RecvError> {
+    match sounds {
+        Some(rx) => rx.recv().await,
+        None => std::future::pending().await,
+    }
+}
+
+/// The negotiated Opus payload type, if the receiver takes sound.
+fn pick_opus(rtc: &mut Rtc, mid: Mid) -> Option<Pt> {
+    let w = rtc.writer(mid)?;
+    w.payload_params()
+        .find(|p| p.spec().codec == Codec::Opus)
+        .map(|p| p.pt())
 }
 
 /// The negotiated H.264 payload type we can send: packetization mode 1,

@@ -15,6 +15,8 @@ export interface Settings {
   listen_everywhere: boolean;
   start_on_launch: boolean;
   autostart_applied: boolean;
+  /** Send the computer's sound to the devices. */
+  sound: boolean;
 }
 
 export interface ScreenInfo {

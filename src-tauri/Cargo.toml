@@ -44,6 +44,8 @@ xcap = "0.9"
 openh264 = { version = "0.9", default-features = false, features = ["libloading"] }
 bzip2 = "0.6"
 str0m = { version = "0.24", default-features = false, features = ["rust-crypto"] }
+# Sound (audio.rs): Opus, what every browser plays (libopus, built from source).
+opus = "0.4"
 sha2 = "0.10"
 # Optional DeskLab account (account.rs): HTTPS with the same rustls + ring the
 # updater uses, the OS keychain for the sign-in, and the computer's name.
@@ -52,8 +54,10 @@ rustls = { version = "0.23", default-features = false, features = ["ring", "std"
 keyring = "4"
 gethostname = "1"
 
-# Windows: control back from devices (input.rs, SendInput).
+# Windows: control back from devices (input.rs, SendInput) and the
+# computer's sound through WASAPI loopback (audio.rs, cpal).
 [target.'cfg(windows)'.dependencies]
+cpal = "0.18"
 windows = { version = "0.62", features = ["Win32_UI_Input_KeyboardAndMouse", "Win32_UI_WindowsAndMessaging"] }
 
 # macOS 14+: screen pictures through ScreenCaptureKit (sck.rs).
