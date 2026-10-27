@@ -262,6 +262,10 @@ async function onMessage(raw: string) {
         console.warn("ice", e);
       }
       break;
+    case "control":
+      // Turned on or off on the computer while connected.
+      control = m.on;
+      break;
     case "notice":
       // E.g. why there's no picture; shown until the picture arrives.
       if (!document.body.classList.contains("live")) show("message", "No picture yet", m.text, true);
