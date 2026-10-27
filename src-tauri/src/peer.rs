@@ -49,6 +49,7 @@ pub async fn run(
     signals: &mut mpsc::UnboundedReceiver<Inbound>,
     video: &Video,
     usb: bool,
+    control: &mut crate::input::Control,
 ) -> Ended {
     // Network: UDP sockets on the server's addresses. Over the USB cable
     // instead one loopback TCP port, which adb forwards to the phone's own
@@ -247,10 +248,8 @@ pub async fn run(
                     Event::IceConnectionStateChange(IceConnectionState::Disconnected) => {
                         break 'outer Ended::Dropped("connection lost".into());
                     }
-                    Event::ChannelData(d) => {
-                        // Touch, pen and mouse: acted on in milestone 4.
-                        tracing::trace!("input {} bytes", d.data.len());
-                    }
+                    // Touch, pen, mouse and scroll back from the receiver.
+                    Event::ChannelData(d) => control.handle(&d.data),
                     _ => {}
                 },
                 Err(e) => break 'outer Ended::Dropped(format!("connection error: {e}")),

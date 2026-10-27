@@ -8,6 +8,7 @@ mod adb;
 mod desklab;
 mod devices;
 mod h264lib;
+mod input;
 mod media;
 mod peer;
 #[cfg(target_os = "macos")]

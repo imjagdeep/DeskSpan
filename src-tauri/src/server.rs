@@ -213,7 +213,7 @@ struct Inner {
 }
 
 pub struct Hub {
-    app: AppHandle,
+    pub(crate) app: AppHandle,
     data_dir: std::path::PathBuf,
     inner: Mutex<Inner>,
     /// Android phones on a USB cable (adb.rs).

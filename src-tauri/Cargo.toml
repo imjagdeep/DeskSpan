@@ -52,6 +52,10 @@ rustls = { version = "0.23", default-features = false, features = ["ring", "std"
 keyring = "4"
 gethostname = "1"
 
+# Windows: control back from devices (input.rs, SendInput).
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.62", features = ["Win32_UI_Input_KeyboardAndMouse", "Win32_UI_WindowsAndMessaging"] }
+
 # macOS 14+: screen pictures through ScreenCaptureKit (sck.rs).
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"
