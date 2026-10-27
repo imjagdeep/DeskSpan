@@ -382,11 +382,12 @@ async fn recv_sound(
 /// The negotiated Opus payload type, if the receiver takes sound.
 fn pick_opus(rtc: &mut Rtc, mid: Mid) -> Option<Pt> {
     let w = rtc.writer(mid)?;
-    let pt = w
-        .payload_params()
-        .find(|p| p.spec().codec == Codec::Opus)
-        .map(|p| p.pt());
-    pt
+    for p in w.payload_params() {
+        if p.spec().codec == Codec::Opus {
+            return Some(p.pt());
+        }
+    }
+    None
 }
 
 /// The negotiated H.264 payload type we can send: packetization mode 1,
