@@ -478,6 +478,9 @@ pub fn set_mode(duplicate: bool) -> Result<(), String> {
     sys::set_mode(duplicate)
 }
 
+/// A screen's id, place and size (to notice a change).
+type Shape = (String, i32, i32, u32, u32);
+
 #[derive(Clone, Serialize)]
 struct Added<'a> {
     screen: &'a Screen,
@@ -490,7 +493,7 @@ pub fn watch(app: AppHandle) {
     std::thread::Builder::new()
         .name("deskspan-screens".into())
         .spawn(move || {
-            let mut known: Option<(HashSet<String>, Vec<(String, i32, i32, u32, u32)>)> = None;
+            let mut known: Option<(HashSet<String>, Vec<Shape>)> = None;
             loop {
                 std::thread::sleep(Duration::from_secs(2));
                 let Ok(l) = layout() else { continue };
