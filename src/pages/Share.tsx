@@ -45,33 +45,52 @@ export function Share() {
     return (
       <div className="page">
         <PageHeader title="Share screen" />
-        <div className="card share-off">
-          <span className="dropzone-icon">
-            <ShareIcon size={28} />
-          </span>
-          <div className="dropzone-title">Use a phone, tablet or another computer as a screen</div>
-          <p className="muted small">
-            Start sharing, then scan the QR code with the other device (or open the link and type the code). It needs nothing installed:
-            just a browser on the same Wi-Fi or network.
-          </p>
-          <div className="row" style={{ justifyContent: "center" }}>
-            <button className="primary" disabled={busy} onClick={() => void run(api.startSharing)}>
-              Start sharing
-            </button>
+        <section className="card span-hero" aria-label="Sharing">
+          <div className="hero-main">
+            <div className="hero-state">
+              <span className="hero-dot off" />
+              Not sharing
+            </div>
+            <div className="hero-big">Use a phone, tablet or another computer as a screen</div>
+            <p className="hero-text">
+              Start sharing, then scan the QR code with the other device (or open the link and type the code). It needs nothing installed: just
+              a browser on the same Wi-Fi or network.
+            </p>
           </div>
-        </div>
+          <button className="hero-btn" disabled={busy} onClick={() => void run(api.startSharing)}>
+            <ShareIcon size={18} />
+            Start sharing
+          </button>
+        </section>
         <Help />
       </div>
     );
   }
 
+  const n = hub.sessions.length;
   return (
     <div className="page">
-      <PageHeader title="Share screen" subtitle={info ? `Sharing ${info.host_name}` : undefined}>
-        <button disabled={busy} onClick={() => void run(api.stopSharing)}>
+      <PageHeader title="Share screen" />
+
+      <section className="card span-hero" aria-label="Sharing">
+        <div className="hero-main">
+          <div className="hero-state">
+            <span className="hero-dot" />
+            Sharing{info ? ` ${info.host_name}` : ""}
+          </div>
+          <div className="hero-big">{n === 0 ? "Waiting for a screen" : n === 1 ? "1 screen connected" : `${n} screens connected`}</div>
+          <div className="hero-pills">
+            {video && <span className="hero-pill">{pictureText(video)}</span>}
+            {hub.requests.length > 0 && (
+              <span className="hero-pill">{hub.requests.length === 1 ? "1 device asking to connect" : `${hub.requests.length} devices asking to connect`}</span>
+            )}
+            {hub.usb.setup === "ready" && <span className="hero-pill">USB cable on</span>}
+          </div>
+        </div>
+        <button className="hero-btn" disabled={busy} onClick={() => void run(api.stopSharing)}>
           Stop sharing
         </button>
-      </PageHeader>
+      </section>
 
       {hub.requests.map((r) => (
         <Ask key={r.id} r={r} />
@@ -107,7 +126,7 @@ export function Share() {
       <div className="card">
         <div className="card-head">
           <h2>Connected screens</h2>
-          {video && <PictureState v={video} />}
+          {video?.state === "error" && <span className="error-text small">No picture: {video.error}</span>}
         </div>
         {hub.sessions.length === 0 ? (
           <div className="muted small">None yet. Devices you allowed before reconnect by themselves when their page is open.</div>
@@ -235,16 +254,11 @@ function UsbCard() {
 }
 
 /** What the picture is doing: getting the encoder, streaming, or why not. */
-function PictureState({ v }: { v: VideoStatus }) {
-  if (v.state === "preparing") return <span className="muted small">Getting the video encoder from Cisco (once, about 1 MB)…</span>;
-  if (v.state === "error") return <span className="error-text small">No picture: {v.error}</span>;
-  if (v.state === "streaming" && v.width > 0)
-    return (
-      <span className="muted small">
-        Main screen · {v.width}×{v.height} · {v.fps} fps
-      </span>
-    );
-  return <span className="muted small">Starting the picture…</span>;
+function pictureText(v: VideoStatus): string {
+  if (v.state === "preparing") return "Getting the video encoder from Cisco (once, about 1 MB)…";
+  if (v.state === "error") return "No picture";
+  if (v.state === "streaming" && v.width > 0) return `Main screen · ${v.width}×${v.height} · ${v.fps} fps`;
+  return "Starting the picture…";
 }
 
 /** "Allow <device>?" */

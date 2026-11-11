@@ -10,8 +10,18 @@
 .pair-code { font-size: 30px; font-weight: 700; letter-spacing: 0.18em; font-variant-numeric: tabular-nums; margin: 2px 0 4px; }
 .url-list { display: flex; flex-direction: column; gap: 2px; margin: 8px 0; }
 .url-list .mono { user-select: all; }
-.share-off { text-align: center; padding: 30px 20px; }
-.share-off .dropzone-icon { margin-bottom: 12px; }
+/* Share: the lime status card at the top (Daylight, like DeskZero's Overview). */
+.card.span-hero { background: var(--lime); color: var(--on-lime); border: 0; box-shadow: none; display: flex; align-items: center; justify-content: space-between; gap: 18px; flex-wrap: wrap; padding: 22px; }
+.span-hero .hero-main { flex: 1 1 320px; min-width: 0; }
+.span-hero .hero-state { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 700; }
+.span-hero .hero-dot { width: 10px; height: 10px; border-radius: 999px; background: #1b7f45; flex: none; }
+.span-hero .hero-dot.off { background: #5b6170; }
+.span-hero .hero-big { font-size: 24px; font-weight: 800; letter-spacing: -0.3px; line-height: 1.2; margin: 6px 0 10px; }
+.span-hero .hero-text { margin: 0; font-size: 13px; line-height: 1.5; color: var(--on-lime); opacity: 0.82; }
+.span-hero .hero-pills { display: flex; flex-wrap: wrap; gap: 8px; }
+.span-hero .hero-pill { background: rgba(17, 18, 23, 0.08); border-radius: 999px; padding: 5px 11px; font-size: 12px; font-weight: 700; }
+.span-hero button.hero-btn { display: inline-flex; align-items: center; gap: 8px; height: 40px; padding: 0 18px; background: #111217; color: #fff; box-shadow: none; flex: none; }
+.span-hero button.hero-btn:hover:not(:disabled) { background: #111217; filter: brightness(1.25); }
 .request { border-color: var(--accent); }
 .request .row { margin: 10px 0 0; }
 .muted-badge { background: var(--hover); color: var(--text-2); }
@@ -53,3 +63,6 @@
 .new-display p { margin: 0 0 12px; }
 .choice-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .choice-pair .choice { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; height: auto; padding: 14px; text-align: left; white-space: normal; border-radius: 12px; }
+
+/* account.css paints every button.danger red; the Devices "Remove" link must stay a link. */
+button.link.danger, button.link.danger:hover:not(:disabled) { background: none; }
