@@ -5,6 +5,7 @@ import { Empty, PageHeader } from "../components/Common";
 import { DevicesIcon } from "../components/Icons";
 import { api, type Device } from "../lib/api";
 import { since, useHub } from "../lib/hub";
+import { PRESETS, describe, presetOf } from "../lib/picture";
 import { toast, toastError, useAppInfo } from "../lib/store";
 
 export function Devices() {
@@ -56,6 +57,18 @@ export function Devices() {
       await api.setMainDisplay(d.id, on);
       await load();
       if (online.has(d.id)) toast(`${d.name} ${on ? "becomes" : "stops being"} the main display the next time it connects.`);
+    } catch (e) {
+      toastError(e);
+    }
+  };
+
+  const setPicture = async (d: Device, id: string) => {
+    const preset = PRESETS.find((p) => p.id === id);
+    if (!preset) return;
+    try {
+      await api.setPicture(d.id, preset.picture);
+      await load();
+      if (online.has(d.id)) toast(`${d.name} gets the new picture the next time it connects.`);
     } catch (e) {
       toastError(e);
     }
@@ -130,6 +143,19 @@ export function Devices() {
                     <span>Main display</span>
                   </label>
                 )}
+                <select
+                  aria-label={`${d.name}: picture`}
+                  title={d.picture ? describe(d.picture) : "Follows the picture setting in Settings"}
+                  value={presetOf(d.picture)}
+                  onChange={(e) => void setPicture(d, e.target.value)}
+                >
+                  {presetOf(d.picture) === "custom" && d.picture && <option value="custom">{describe(d.picture)}</option>}
+                  {PRESETS.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.label}
+                    </option>
+                  ))}
+                </select>
                 <label className="toggle" title="Touch, pen and mouse on the device act on this computer">
                   <input type="checkbox" checked={d.control} onChange={(e) => void setControl(d, e.target.checked)} />
                   <span>Can control</span>

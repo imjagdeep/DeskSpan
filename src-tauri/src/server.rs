@@ -667,6 +667,17 @@ impl Hub {
         Ok(())
     }
 
+    /// A device's own picture settings (None: the default). Next connection.
+    pub fn set_picture(
+        &self,
+        id: &str,
+        picture: Option<crate::quality::Quality>,
+    ) -> Result<(), String> {
+        self.lock().devices.set_picture(id, picture)?;
+        self.changed();
+        Ok(())
+    }
+
     pub fn rename_device(&self, id: &str, name: &str) -> Result<(), String> {
         self.lock().devices.rename(id, name)?;
         self.changed();
@@ -1247,22 +1258,25 @@ async fn receiver(hub: Arc<Hub>, socket: WebSocket, addr: SocketAddr) {
                 // Its current screen and extend choice (may have changed).
                 let start = {
                     let mut g = hub.lock();
-                    let (extend, main) = g
+                    let (extend, main, own) = g
                         .devices
                         .list()
                         .into_iter()
                         .find(|d| d.id == device.id)
-                        .map(|d| (d.extend, d.main))
-                        .unwrap_or((device.extend, device.main));
+                        .map(|d| (d.extend, d.main, d.picture))
+                        .unwrap_or((device.extend, device.main, device.picture));
                     match g.sessions.get_mut(&session) {
                         Some(s) if !s.screen_on => {
                             s.screen_on = true;
-                            Some((s.screen, extend, main, s.via_usb))
+                            Some((s.screen, extend, main, own, s.via_usb))
                         }
                         _ => None,
                     }
                 };
-                if let Some((screen, extend, main, usb)) = start {
+                if let Some((screen, extend, main, own, usb)) = start {
+                    // Its own picture settings, else the default in Settings.
+                    let picture = own
+                        .unwrap_or_else(|| crate::settings::Settings::load(&hub.data_dir).picture);
                     hub.media(MediaEvent::Joined(crate::media::Join {
                         session,
                         device_id: device.id.clone(),
@@ -1270,6 +1284,7 @@ async fn receiver(hub: Arc<Hub>, socket: WebSocket, addr: SocketAddr) {
                         screen,
                         extend,
                         main: extend && main,
+                        picture,
                         usb,
                     }));
                     hub.changed();

@@ -26,6 +26,8 @@ pub struct Join {
     pub extend: bool,
     /// Extend only: make its display the main screen.
     pub main: bool,
+    /// Its picture settings (own or the default).
+    pub picture: crate::quality::Quality,
     /// Connected by USB cable: the picture goes over the cable too.
     pub usb: bool,
 }
@@ -141,7 +143,7 @@ async fn serve(
         }
     }
     let video = match display {
-        Some(id) => Video::for_display(data_dir, id),
+        Some(id) => Video::for_display(data_dir, id, join.picture),
         None => mirror,
     };
 

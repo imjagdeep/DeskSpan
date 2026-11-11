@@ -2,6 +2,7 @@
 //! the receiver page (its browser storage); only the key's SHA-256 is stored
 //! here, in devices.json.
 
+use crate::quality::Quality;
 use crate::secret;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
@@ -24,6 +25,9 @@ struct Stored {
     /// mini with no monitor, an iPad as the only screen).
     #[serde(default)]
     main: bool,
+    /// Its own picture settings; None follows the default in Settings.
+    #[serde(default)]
+    picture: Option<Quality>,
 }
 
 fn yes() -> bool {
@@ -40,6 +44,7 @@ pub struct Device {
     pub control: bool,
     pub extend: bool,
     pub main: bool,
+    pub picture: Option<Quality>,
 }
 
 pub struct Devices {
@@ -89,6 +94,7 @@ impl Devices {
                 control: d.control,
                 extend: d.extend,
                 main: d.main,
+                picture: d.picture,
             })
             .collect()
     }
@@ -107,6 +113,7 @@ impl Devices {
             control,
             extend: true,
             main: false,
+            picture: None,
         });
         self.save()?;
         Ok((id, key))
@@ -128,6 +135,7 @@ impl Devices {
             control: d.control,
             extend: d.extend,
             main: d.main,
+            picture: d.picture,
         };
         if let Err(e) = self.save() {
             tracing::warn!("{e}");
@@ -167,6 +175,16 @@ impl Devices {
             .find(|d| d.id == id)
             .ok_or("that device is no longer in the list")?;
         d.main = main;
+        self.save()
+    }
+
+    pub fn set_picture(&mut self, id: &str, picture: Option<Quality>) -> Result<(), String> {
+        let d = self
+            .list
+            .iter_mut()
+            .find(|d| d.id == id)
+            .ok_or("that device is no longer in the list")?;
+        d.picture = picture;
         self.save()
     }
 
@@ -213,6 +231,13 @@ mod tests {
         assert!(!again.list()[0].main);
         again.set_main(&id, true).unwrap();
         assert!(Devices::load(dir.path()).list()[0].main);
+        assert_eq!(again.list()[0].picture, None);
+        let smooth = Quality {
+            fps: 60,
+            ..Quality::default()
+        };
+        again.set_picture(&id, Some(smooth)).unwrap();
+        assert_eq!(Devices::load(dir.path()).list()[0].picture, Some(smooth));
         again.remove(&id).unwrap();
         assert!(again.list().is_empty());
     }

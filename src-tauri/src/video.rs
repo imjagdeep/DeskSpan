@@ -5,6 +5,7 @@
 //! One capture thread serves all receivers. It starts with the first one and
 //! stops a few seconds after the last one leaves.
 
+use crate::quality::Quality;
 use serde::Serialize;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -12,12 +13,7 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 use tokio::sync::broadcast;
 
-/// Target frames per second (a ceiling; big screens may capture slower).
-const FPS: u32 = 30;
-/// Wider than this is halved before encoding (4K → 1920×1080).
-const MAX_WIDTH: u32 = 2560;
-/// Bits per second for a 1080p-ish desktop: sharp text, moderate Wi-Fi load.
-const BITRATE: u32 = 8_000_000;
+// Frame rate, size and bitrate come from the picture settings (quality.rs).
 /// The thread stops this long after the last receiver leaves.
 const LINGER: Duration = Duration::from_secs(3);
 
@@ -53,6 +49,9 @@ pub struct Video {
     /// The display to capture: None = the main screen (mirror), Some(id) =
     /// that display (an extend receiver's virtual display).
     target: Option<u32>,
+    /// An extend device's own picture settings; None (the shared main
+    /// screen) reads the default from Settings each time capture starts.
+    quality: Option<Quality>,
     tx: broadcast::Sender<Arc<Frame>>,
     keyframe: Arc<AtomicBool>,
     running: Arc<AtomicBool>,
@@ -62,18 +61,19 @@ pub struct Video {
 impl Video {
     /// The main screen (mirror), shared by every mirroring receiver.
     pub fn new(data_dir: PathBuf) -> Video {
-        Video::for_target(data_dir, None)
+        Video::for_target(data_dir, None, None)
     }
 
     /// One display by its ID (an extend receiver's own virtual display).
-    pub fn for_display(data_dir: PathBuf, display_id: u32) -> Video {
-        Video::for_target(data_dir, Some(display_id))
+    pub fn for_display(data_dir: PathBuf, display_id: u32, quality: Quality) -> Video {
+        Video::for_target(data_dir, Some(display_id), Some(quality))
     }
 
-    fn for_target(data_dir: PathBuf, target: Option<u32>) -> Video {
+    fn for_target(data_dir: PathBuf, target: Option<u32>, quality: Option<Quality>) -> Video {
         let (tx, _) = broadcast::channel(4);
         Video {
             target,
+            quality,
             tx,
             keyframe: Arc::new(AtomicBool::new(false)),
             running: Arc::new(AtomicBool::new(false)),
@@ -168,26 +168,42 @@ impl Video {
         use openh264::formats::YUVSlices;
 
         let api = crate::h264lib::load(library)?;
-        // Several cores: a Retina-sized frame is a lot for one.
+        let quality = self.quality.unwrap_or_else(|| {
+            let dir = self.lock().data_dir.clone();
+            crate::settings::Settings::load(&dir).picture
+        });
+        let fps = quality.fps();
+        let monitor = monitor_for(self.target)?;
+        // The bitrate follows the stream's size (as it starts).
+        let (sw, sh) = stream_size(&monitor, &quality).unwrap_or((1920, 1080));
+        let bitrate = quality.bitrate(sw, sh);
+        // Several cores: a Retina-sized frame is a lot for one (fewer when
+        // saving battery).
+        let cores = if quality.saver { 2 } else { 4 };
         let threads = std::thread::available_parallelism()
-            .map(|n| n.get().min(4))
+            .map(|n| n.get().min(cores))
             .unwrap_or(2) as u16;
         let config = EncoderConfig::new()
             .usage_type(UsageType::ScreenContentRealTime)
             .profile(Profile::Baseline)
             .rate_control_mode(RateControlMode::Bitrate)
-            .bitrate(BitRate::from_bps(BITRATE))
-            .max_frame_rate(FrameRate::from_hz(FPS as f32))
-            .intra_frame_period(IntraFramePeriod::from_num_frames(FPS * 10))
+            .bitrate(BitRate::from_bps(bitrate))
+            .max_frame_rate(FrameRate::from_hz(fps as f32))
+            .intra_frame_period(IntraFramePeriod::from_num_frames(fps * 10))
             .num_threads(threads);
         let mut encoder = Encoder::with_api_config(api, config)
             .map_err(|e| format!("the H.264 encoder didn't start: {e}"))?;
-        let monitor = monitor_for(self.target)?;
-        let mut source = Source::open(&monitor);
+        tracing::info!(
+            "video {:?}: {sw}x{sh} up to {fps} fps, {} kbit/s, battery saver {}",
+            self.target,
+            bitrate / 1000,
+            quality.saver
+        );
+        let mut source = Source::open(&monitor, &quality);
         self.set_state("streaming", None);
 
         let start = Instant::now();
-        let frame_time = Duration::from_secs(1) / FPS;
+        let frame_time = Duration::from_secs(1) / fps;
         let mut alone_since: Option<Instant> = None;
         // The newest picture (I420, w, h): repeated when a full picture is
         // needed while the screen is still.
@@ -223,10 +239,10 @@ impl Video {
                 counted = 0;
                 count_from = Instant::now();
                 // The display may have changed size (receiver went full screen).
-                source.follow_size(&monitor);
+                source.follow_size(&monitor, &quality);
             }
 
-            let fresh = source.next(&monitor)?;
+            let fresh = source.next(&monitor, &quality)?;
             let want_key = self.keyframe.swap(false, Ordering::Relaxed);
             match fresh {
                 Some(frame) => last = Some(frame),
@@ -284,12 +300,12 @@ enum Source {
 }
 
 impl Source {
-    fn open(_monitor: &xcap::Monitor) -> Source {
+    fn open(_monitor: &xcap::Monitor, _quality: &Quality) -> Source {
         #[cfg(target_os = "macos")]
         if crate::sck::available() {
-            let started = stream_size(_monitor).and_then(|(w, h)| {
+            let started = stream_size(_monitor, _quality).and_then(|(w, h)| {
                 let id = _monitor.id().map_err(|e| format!("screen id: {e}"))?;
-                crate::scstream::Capture::start(id, w, h, FPS).map(|c| (c, (w, h)))
+                crate::scstream::Capture::start(id, w, h, _quality.fps()).map(|c| (c, (w, h)))
             });
             match started {
                 Ok((capture, size)) => {
@@ -303,12 +319,15 @@ impl Source {
     }
 
     /// The next picture as I420, or None if the screen hasn't changed.
-    fn next(&mut self, monitor: &xcap::Monitor) -> Result<Option<(Vec<u8>, u32, u32)>, String> {
+    fn next(
+        &mut self,
+        monitor: &xcap::Monitor,
+        quality: &Quality,
+    ) -> Result<Option<(Vec<u8>, u32, u32)>, String> {
         match self {
             Source::Grab => {
-                let (rgba, sw, sh) = grab(monitor)?;
-                let scale = if sw > MAX_WIDTH { 2 } else { 1 };
-                Ok(Some(rgba_to_i420(&rgba, sw, sh, scale)))
+                let (rgba, sw, sh) = grab(monitor, quality)?;
+                Ok(Some(rgba_to_i420(&rgba, sw, sh, quality.shrink(sw))))
             }
             #[cfg(target_os = "macos")]
             Source::Stream { capture, .. } => Ok(capture
@@ -323,10 +342,10 @@ impl Source {
     }
 
     /// Keep the stream at the display's current size.
-    fn follow_size(&mut self, _monitor: &xcap::Monitor) {
+    fn follow_size(&mut self, _monitor: &xcap::Monitor, _quality: &Quality) {
         #[cfg(target_os = "macos")]
         if let Source::Stream { capture, size } = self {
-            if let Ok(now) = stream_size(_monitor) {
+            if let Ok(now) = stream_size(_monitor, _quality) {
                 if now != *size {
                     match capture.resize(now.0, now.1) {
                         Ok(()) => {
@@ -341,35 +360,29 @@ impl Source {
     }
 }
 
-/// The stream size for a display: its pixels, halved when very wide.
-#[cfg(target_os = "macos")]
-fn stream_size(monitor: &xcap::Monitor) -> Result<(u32, u32), String> {
-    let scale = monitor.scale_factor().unwrap_or(1.0) as f64;
+/// The stream size for a display: its pixels, shrunk by a whole number
+/// when wider than the picture settings allow.
+fn stream_size(monitor: &xcap::Monitor, quality: &Quality) -> Result<(u32, u32), String> {
+    // macOS reports points; elsewhere xcap's sizes are already pixels.
+    let scale = if cfg!(target_os = "macos") {
+        monitor.scale_factor().unwrap_or(1.0) as f64
+    } else {
+        1.0
+    };
     let w = (monitor.width().map_err(|e| format!("screen size: {e}"))? as f64 * scale) as u32;
     let h = (monitor.height().map_err(|e| format!("screen size: {e}"))? as f64 * scale) as u32;
-    Ok(if w > MAX_WIDTH {
-        ((w / 2) & !1, (h / 2) & !1)
-    } else {
-        (w & !1, h & !1)
-    })
+    let s = quality.shrink(w);
+    Ok(((w / s) & !1, (h / s) & !1))
 }
 
 /// One picture of the screen as RGBA. macOS 14+: ScreenCaptureKit, asked
-/// for at most MAX_WIDTH wide (xcap's older API returns nothing on macOS
+/// at the picture settings' size (xcap's older API returns nothing on macOS
 /// 27); xcap elsewhere.
-fn grab(monitor: &xcap::Monitor) -> Result<(Vec<u8>, u32, u32), String> {
+fn grab(monitor: &xcap::Monitor, _quality: &Quality) -> Result<(Vec<u8>, u32, u32), String> {
     #[cfg(target_os = "macos")]
     if crate::sck::available() {
         let id = monitor.id().map_err(|e| format!("screen id: {e}"))?;
-        let scale = monitor.scale_factor().unwrap_or(1.0) as f64;
-        let mut w =
-            (monitor.width().map_err(|e| format!("screen size: {e}"))? as f64 * scale) as u32;
-        let mut h =
-            (monitor.height().map_err(|e| format!("screen size: {e}"))? as f64 * scale) as u32;
-        if w > MAX_WIDTH {
-            w /= 2;
-            h /= 2;
-        }
+        let (w, h) = stream_size(monitor, _quality)?;
         return crate::sck::capture_display(id, w, h);
     }
     let shot = monitor

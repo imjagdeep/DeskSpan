@@ -1,6 +1,7 @@
 // Typed wrappers over the Rust commands. Errors arrive as plain strings.
 
 import { invoke } from "@tauri-apps/api/core";
+import type { Picture } from "./picture";
 
 export interface AppInfo {
   version: string;
@@ -17,6 +18,8 @@ export interface Settings {
   autostart_applied: boolean;
   /** Send the computer's sound to the devices. */
   sound: boolean;
+  /** The main screen's picture, and devices without their own. */
+  picture: Picture;
 }
 
 export interface ScreenInfo {
@@ -90,6 +93,8 @@ export interface Device {
   extend: boolean;
   /** Extend only (macOS): its display becomes the main screen */
   main: boolean;
+  /** Its own picture settings; null follows Settings */
+  picture: Picture | null;
 }
 
 export type LabToolId = "deskzero" | "deskmedic" | "deskfolio" | "deskshot" | "deskspan";
@@ -152,6 +157,8 @@ export const api = {
   setExtend: (id: string, extend: boolean) => invoke<void>("device_set_extend", { id, extend }),
   /** Used the next time the device connects. */
   setMainDisplay: (id: string, main: boolean) => invoke<void>("device_set_main", { id, main }),
+  /** Used the next time the device connects; null follows Settings. */
+  setPicture: (id: string, picture: Picture | null) => invoke<void>("device_set_picture", { id, picture }),
   renameDevice: (id: string, name: string) => invoke<void>("device_rename", { id, name }),
 
   openLink: (id: "site" | "repo" | "issues" | "releases" | "developer" | "screen-permission" | LabToolId) =>
