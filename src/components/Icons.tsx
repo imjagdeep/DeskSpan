@@ -274,6 +274,13 @@ export const ShareIcon = (p: IconProps) => (
     <path d="M18.5 17h1" />
   </Svg>
 );
+export const DisplaysIcon = (p: IconProps) => (
+  <Svg {...p}>
+    <rect x="2.5" y="5" width="11" height="8" rx="1.4" />
+    <rect x="13.5" y="8" width="8" height="10" rx="1.4" />
+    <path d="M5.5 17h5M8 13v4" />
+  </Svg>
+);
 export const DevicesIcon = (p: IconProps) => (
   <Svg {...p}>
     <rect x="3.5" y="4" width="10" height="16" rx="1.8" />

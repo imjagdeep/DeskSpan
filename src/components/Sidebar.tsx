@@ -1,14 +1,15 @@
 import logo from "../assets/logo.png";
 import { useHub } from "../lib/hub";
 import { SideNav, type NavGroup } from "../shell/SideNav";
-import { AccountIcon, DevicesIcon, SettingsIcon, ShareIcon } from "./Icons";
+import { AccountIcon, DevicesIcon, DisplaysIcon, SettingsIcon, ShareIcon } from "./Icons";
 
-export type Page = "share" | "devices" | "account" | "settings";
+export type Page = "share" | "devices" | "displays" | "account" | "settings";
 
 /** The pages in sidebar order (the View menu and Ctrl+1… use it too). */
 export const PAGES: { page: Page; label: string; group: string }[] = [
   { page: "share", label: "Share screen", group: "Screens" },
   { page: "devices", label: "Devices", group: "Screens" },
+  { page: "displays", label: "Displays", group: "Screens" },
   { page: "account", label: "Account", group: "App" },
   { page: "settings", label: "Settings", group: "App" },
 ];
@@ -16,6 +17,7 @@ export const PAGES: { page: Page; label: string; group: string }[] = [
 const ICONS: Record<Page, (p: { size?: number }) => React.ReactElement> = {
   share: ShareIcon,
   devices: DevicesIcon,
+  displays: DisplaysIcon,
   account: AccountIcon,
   settings: SettingsIcon,
 };

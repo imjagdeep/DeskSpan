@@ -96,7 +96,34 @@ export interface LabTool {
   installed: boolean;
 }
 
+/** One screen on the computer (Displays page). */
+export interface Screen {
+  id: string;
+  name: string;
+  /** "HDMI", "DisplayPort", "USB-C", "VGA", "DVI", "Built-in", "Wireless", "DeskSpan", "Virtual", "External" */
+  connection: string;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  main: boolean;
+  mirror_of: string | null;
+  deskspan: boolean;
+}
+
+export interface ScreenLayout {
+  screens: Screen[];
+  can_arrange: boolean;
+  can_mirror: boolean;
+  mode: "extend" | "duplicate";
+}
+
 export const api = {
+  screensLayout: () => invoke<ScreenLayout>("screens_layout"),
+  screensArrange: (places: { id: string; x: number; y: number }[]) => invoke<void>("screens_arrange", { places }),
+  screensSetMain: (id: string) => invoke<void>("screens_set_main", { id }),
+  screensSetMode: (duplicate: boolean) => invoke<void>("screens_set_mode", { duplicate }),
+
   appInfo: () => invoke<AppInfo>("app_info"),
   getSettings: () => invoke<Settings>("get_settings"),
   /** Saved (and tidied) settings come back. */

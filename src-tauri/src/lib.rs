@@ -16,6 +16,7 @@ mod peer;
 mod scaudio;
 #[cfg(target_os = "macos")]
 mod sck;
+mod screens;
 #[cfg(target_os = "macos")]
 mod scstream;
 mod secret;
@@ -229,6 +230,36 @@ fn device_set_extend(hub: State<'_, Arc<Hub>>, id: String, extend: bool) -> CmdR
     hub.set_extend(&id, extend)
 }
 
+/// Every screen on the computer (Displays page).
+#[tauri::command]
+async fn screens_layout() -> CmdResult<screens::Layout> {
+    tauri::async_runtime::spawn_blocking(screens::layout)
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+async fn screens_arrange(places: Vec<screens::Place>) -> CmdResult<()> {
+    tauri::async_runtime::spawn_blocking(move || screens::arrange(places))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+async fn screens_set_main(id: String) -> CmdResult<()> {
+    tauri::async_runtime::spawn_blocking(move || screens::set_main(&id))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+/// Duplicate (true) or extend (false) the screens.
+#[tauri::command]
+async fn screens_set_mode(duplicate: bool) -> CmdResult<()> {
+    tauri::async_runtime::spawn_blocking(move || screens::set_mode(duplicate))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
 #[tauri::command]
 fn device_rename(hub: State<'_, Arc<Hub>>, id: String, name: String) -> CmdResult<()> {
     hub.rename_device(&id, &name)
@@ -427,6 +458,8 @@ pub fn run() {
             });
             app.manage(account::Account::new("deskspan")?);
             tray::build(app.handle())?;
+            // Monitors plugged in later: ask whether to extend or duplicate.
+            screens::watch(app.handle().clone());
 
             if start_now {
                 let handle = app.handle().clone();
@@ -470,6 +503,10 @@ pub fn run() {
             device_set_control,
             device_set_extend,
             device_rename,
+            screens_layout,
+            screens_arrange,
+            screens_set_main,
+            screens_set_mode,
             open_link,
             desklab_tools,
             open_tool,

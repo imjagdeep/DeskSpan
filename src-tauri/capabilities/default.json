@@ -20,6 +20,8 @@
     "autostart:allow-disable",
     "autostart:allow-is-enabled",
     "core:window:allow-set-title",
+    "core:window:allow-show",
+    "core:window:allow-set-focus",
     "core:window:allow-set-fullscreen",
     "core:window:allow-is-fullscreen",
     "core:webview:allow-set-webview-zoom"

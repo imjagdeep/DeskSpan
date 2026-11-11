@@ -58,7 +58,7 @@ gethostname = "1"
 # computer's sound through WASAPI loopback (audio.rs, cpal).
 [target.'cfg(windows)'.dependencies]
 cpal = "0.18"
-windows = { version = "0.62", features = ["Win32_UI_Input_KeyboardAndMouse", "Win32_UI_WindowsAndMessaging"] }
+windows = { version = "0.62", features = ["Win32_Foundation", "Win32_Devices_Display", "Win32_UI_Input_KeyboardAndMouse", "Win32_UI_WindowsAndMessaging"] }
 
 # macOS 14+: screen pictures through ScreenCaptureKit (sck.rs).
 [target.'cfg(target_os = "macos")'.dependencies]
