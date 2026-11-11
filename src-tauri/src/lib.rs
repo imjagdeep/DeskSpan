@@ -12,6 +12,7 @@ mod h264lib;
 mod input;
 mod media;
 mod peer;
+mod quality;
 #[cfg(target_os = "macos")]
 mod scaudio;
 #[cfg(target_os = "macos")]
@@ -260,6 +261,16 @@ async fn screens_set_mode(duplicate: bool) -> CmdResult<()> {
         .map_err(|e| e.to_string())?
 }
 
+/// A device's own picture settings, or None to follow the default.
+#[tauri::command]
+fn device_set_picture(
+    hub: State<'_, Arc<Hub>>,
+    id: String,
+    picture: Option<quality::Quality>,
+) -> CmdResult<()> {
+    hub.set_picture(&id, picture)
+}
+
 #[tauri::command]
 fn device_rename(hub: State<'_, Arc<Hub>>, id: String, name: String) -> CmdResult<()> {
     hub.rename_device(&id, &name)
@@ -502,6 +513,7 @@ pub fn run() {
             device_remove,
             device_set_control,
             device_set_extend,
+            device_set_picture,
             device_rename,
             screens_layout,
             screens_arrange,

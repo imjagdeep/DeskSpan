@@ -24,6 +24,8 @@ pub struct Join {
     pub name: String,
     pub screen: Option<ScreenInfo>,
     pub extend: bool,
+    /// Its picture settings (own or the default).
+    pub picture: crate::quality::Quality,
     /// Connected by USB cable: the picture goes over the cable too.
     pub usb: bool,
 }
@@ -122,7 +124,7 @@ async fn serve(
             .insert(session, id);
     }
     let video = match display {
-        Some(id) => Video::for_display(data_dir, id),
+        Some(id) => Video::for_display(data_dir, id, join.picture),
         None => mirror,
     };
 

@@ -1,5 +1,6 @@
 //! DeskSpan's settings, kept as settings.json in the app's data folder.
 
+use crate::quality::Quality;
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 
@@ -22,6 +23,8 @@ pub struct Settings {
     pub usb_cable: bool,
     /// Send the computer's sound to the devices (Windows, macOS).
     pub sound: bool,
+    /// The picture for the main screen and for devices without their own.
+    pub picture: Quality,
 }
 
 impl Default for Settings {
@@ -33,6 +36,7 @@ impl Default for Settings {
             autostart_applied: false,
             usb_cable: false,
             sound: true,
+            picture: Quality::default(),
         }
     }
 }
