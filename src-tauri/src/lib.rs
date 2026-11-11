@@ -230,6 +230,11 @@ fn device_set_extend(hub: State<'_, Arc<Hub>>, id: String, extend: bool) -> CmdR
     hub.set_extend(&id, extend)
 }
 
+#[tauri::command]
+fn device_set_main(hub: State<'_, Arc<Hub>>, id: String, main: bool) -> CmdResult<()> {
+    hub.set_main_display(&id, main)
+}
+
 /// Every screen on the computer (Displays page).
 #[tauri::command]
 async fn screens_layout() -> CmdResult<screens::Layout> {
@@ -502,6 +507,7 @@ pub fn run() {
             device_remove,
             device_set_control,
             device_set_extend,
+            device_set_main,
             device_rename,
             screens_layout,
             screens_arrange,

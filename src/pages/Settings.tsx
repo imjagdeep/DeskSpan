@@ -132,6 +132,13 @@ export function SettingsPage() {
               </span>
             </label>
           )}
+          {info?.platform === "macos" && (
+            <p className="muted small">
+              A Mac with no monitor (like a Mac mini with an iPad as its screen): turn on both options above, turn on automatic login in System
+              Settings › Users &amp; Groups (macOS doesn't let apps share the login window), and under Devices set the iPad to Extend and Main
+              display.
+            </p>
+          )}
         </div>
       )}
 

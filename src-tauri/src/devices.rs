@@ -20,6 +20,10 @@ struct Stored {
     /// Extend (its own extra display) or mirror the main screen.
     #[serde(default = "yes")]
     extend: bool,
+    /// Extend only: its display becomes the computer's main screen (a Mac
+    /// mini with no monitor, an iPad as the only screen).
+    #[serde(default)]
+    main: bool,
 }
 
 fn yes() -> bool {
@@ -35,6 +39,7 @@ pub struct Device {
     pub last_seen: u64,
     pub control: bool,
     pub extend: bool,
+    pub main: bool,
 }
 
 pub struct Devices {
@@ -83,6 +88,7 @@ impl Devices {
                 last_seen: d.last_seen,
                 control: d.control,
                 extend: d.extend,
+                main: d.main,
             })
             .collect()
     }
@@ -100,6 +106,7 @@ impl Devices {
             last_seen: t,
             control,
             extend: true,
+            main: false,
         });
         self.save()?;
         Ok((id, key))
@@ -120,6 +127,7 @@ impl Devices {
             last_seen: d.last_seen,
             control: d.control,
             extend: d.extend,
+            main: d.main,
         };
         if let Err(e) = self.save() {
             tracing::warn!("{e}");
@@ -149,6 +157,16 @@ impl Devices {
             .find(|d| d.id == id)
             .ok_or("that device is no longer in the list")?;
         d.extend = extend;
+        self.save()
+    }
+
+    pub fn set_main(&mut self, id: &str, main: bool) -> Result<(), String> {
+        let d = self
+            .list
+            .iter_mut()
+            .find(|d| d.id == id)
+            .ok_or("that device is no longer in the list")?;
+        d.main = main;
         self.save()
     }
 
@@ -192,6 +210,9 @@ mod tests {
         assert_eq!(again.list()[0].name, "iPad");
         again.set_control(&id, true).unwrap();
         assert!(again.check(&id, &key).unwrap().control);
+        assert!(!again.list()[0].main);
+        again.set_main(&id, true).unwrap();
+        assert!(Devices::load(dir.path()).list()[0].main);
         again.remove(&id).unwrap();
         assert!(again.list().is_empty());
     }
