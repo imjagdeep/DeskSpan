@@ -1268,9 +1268,8 @@ async fn receiver(hub: Arc<Hub>, socket: WebSocket, addr: SocketAddr) {
                 };
                 if let Some((screen, extend, own, usb)) = start {
                     // Its own picture settings, else the default in Settings.
-                    let picture = own.unwrap_or_else(|| {
-                        crate::settings::Settings::load(&hub.data_dir).picture
-                    });
+                    let picture = own
+                        .unwrap_or_else(|| crate::settings::Settings::load(&hub.data_dir).picture);
                     hub.media(MediaEvent::Joined(crate::media::Join {
                         session,
                         device_id: device.id.clone(),
