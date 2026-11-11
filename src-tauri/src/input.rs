@@ -69,13 +69,33 @@ impl Rect {
 /// What the pointer should do, in desktop coordinates.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Action {
-    Move { x: f64, y: f64 },
-    Down { x: f64, y: f64, button: Button },
-    Up { x: f64, y: f64, button: Button },
-    Scroll { x: f64, y: f64, dx: f64, dy: f64 },
+    Move {
+        x: f64,
+        y: f64,
+    },
+    Down {
+        x: f64,
+        y: f64,
+        button: Button,
+    },
+    Up {
+        x: f64,
+        y: f64,
+        button: Button,
+    },
+    Scroll {
+        x: f64,
+        y: f64,
+        dx: f64,
+        dy: f64,
+    },
     /// A pen is drawing: the pressure (0..1) and tilt (-1..1) for the events
     /// that follow, until the pen lifts. macOS passes them on as tablet events.
-    Pen { pressure: f64, tilt_x: f64, tilt_y: f64 },
+    Pen {
+        pressure: f64,
+        tilt_x: f64,
+        tilt_y: f64,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -640,9 +660,17 @@ mod tests {
             }
         );
         assert!(matches!(down[1], Action::Move { .. }));
-        assert!(matches!(down[2], Action::Down { button: Button::Left, .. }));
+        assert!(matches!(
+            down[2],
+            Action::Down {
+                button: Button::Left,
+                ..
+            }
+        ));
         let drag = t.translate(
-            &ev(r#"{"k":"p","e":"m","id":7,"pt":"p","x":0.5,"y":0.5,"pr":1.7,"tx":0,"ty":0,"b":1}"#),
+            &ev(
+                r#"{"k":"p","e":"m","id":7,"pt":"p","x":0.5,"y":0.5,"pr":1.7,"tx":0,"ty":0,"b":1}"#,
+            ),
             R,
         );
         // Out-of-range pressure is clamped.

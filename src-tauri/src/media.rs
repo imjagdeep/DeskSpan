@@ -128,7 +128,9 @@ async fn serve(
             // When the device leaves, its display goes and the OS picks
             // another main screen by itself, so this can't strand the user.
             if let Err(why) = make_main(id).await {
-                tracing::warn!("session {session}: cannot make display {id} the main screen: {why}");
+                tracing::warn!(
+                    "session {session}: cannot make display {id} the main screen: {why}"
+                );
                 hub.send(
                     session,
                     &Outbound::Notice {
