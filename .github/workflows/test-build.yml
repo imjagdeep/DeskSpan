@@ -39,9 +39,10 @@ jobs:
           path: src-tauri/target/release/bundle/nsis/*-setup.exe
           retention-days: 5
 
-  # Apple Silicon .app, signed with the Developer ID (so macOS keeps the
-  # Screen Recording permission it gave the released app) but not
-  # notarized: for copying straight onto a test Mac, not for downloading.
+  # Universal .app (Apple Silicon and Intel Macs), signed with the Developer
+  # ID (so macOS keeps the Screen Recording permission it gave the released
+  # app) but not notarized: for copying straight onto a test Mac, not for
+  # downloading.
   macos:
     runs-on: macos-latest
     steps:
@@ -53,6 +54,8 @@ jobs:
           cache: npm
 
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
 
       - uses: swatinem/rust-cache@v2
         with:
@@ -67,10 +70,10 @@ jobs:
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
-        run: npm run tauri build -- --bundles app
+        run: npm run tauri build -- --bundles app --target universal-apple-darwin
 
       # tar keeps the bundle's symlinks and permissions.
-      - run: tar -czf DeskSpan-app.tgz -C src-tauri/target/release/bundle/macos DeskSpan.app
+      - run: tar -czf DeskSpan-app.tgz -C src-tauri/target/universal-apple-darwin/release/bundle/macos DeskSpan.app
 
       - uses: actions/upload-artifact@v4
         with:
