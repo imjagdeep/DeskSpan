@@ -799,10 +799,7 @@ mod tests {
     #[test]
     fn command_c_copies_on_the_other_kind_of_computer() {
         let mut t = Translator::default();
-        let from_mac = t.translate(
-            &ev(r#"{"k":"k","e":"d","code":"MetaLeft","mac":true}"#),
-            R,
-        );
+        let from_mac = t.translate(&ev(r#"{"k":"k","e":"d","code":"MetaLeft","mac":true}"#), R);
         let from_pc = t.translate(
             &ev(r#"{"k":"k","e":"d","code":"ControlLeft","mac":false}"#),
             R,

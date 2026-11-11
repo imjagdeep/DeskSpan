@@ -240,11 +240,13 @@ pub fn normalize_address(input: &str, default_port: u16) -> Result<String, Strin
 pub fn is_local_address(address: &str) -> bool {
     let host = address.rsplit_once(':').map_or(address, |(h, _)| h);
     match host.parse::<IpAddr>() {
-        Ok(IpAddr::V4(v4)) => v4.is_private() || v4.is_link_local() || v4.is_loopback() || {
-            // Tailscale and other carrier-grade NAT addresses (100.64/10).
-            let o = v4.octets();
-            o[0] == 100 && (64..128).contains(&o[1])
-        },
+        Ok(IpAddr::V4(v4)) => {
+            v4.is_private() || v4.is_link_local() || v4.is_loopback() || {
+                // Tailscale and other carrier-grade NAT addresses (100.64/10).
+                let o = v4.octets();
+                o[0] == 100 && (64..128).contains(&o[1])
+            }
+        }
         Ok(IpAddr::V6(_)) => false,
         Err(_) => host.ends_with(".local") || !host.contains('.'),
     }

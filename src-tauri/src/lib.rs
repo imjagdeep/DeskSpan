@@ -176,7 +176,11 @@ async fn open_viewer(
         return w.set_focus().map_err(|e| e.to_string());
     }
     let shown = name.trim();
-    let shown = if shown.is_empty() { address.as_str() } else { shown };
+    let shown = if shown.is_empty() {
+        address.as_str()
+    } else {
+        shown
+    };
     WebviewWindowBuilder::new(&app, &label, WebviewUrl::External(url))
         .title(format!("{shown} — DeskSpan"))
         .inner_size(1280.0, 800.0)
