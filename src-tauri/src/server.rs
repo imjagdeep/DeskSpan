@@ -57,9 +57,16 @@ pub struct ScreenInfo {
 #[derive(Debug, Deserialize)]
 #[serde(tag = "kind", rename_all = "kebab-case")]
 pub enum Auth {
-    Token { token: String },
-    Code { code: String },
-    Device { id: String, key: String },
+    Token {
+        token: String,
+    },
+    Code {
+        code: String,
+    },
+    Device {
+        id: String,
+        key: String,
+    },
     /// From another computer's DeskSpan window (Connect): no code, the
     /// user here just answers Allow or Don't allow.
     Ask,
@@ -1209,9 +1216,7 @@ async fn receiver(hub: Arc<Hub>, socket: WebSocket, addr: SocketAddr) {
             continue;
         }
         say(&Outbound::Wait);
-        let decision = hub
-            .ask(&devices::clean_name(&name), &address, viewer)
-            .await;
+        let decision = hub.ask(&devices::clean_name(&name), &address, viewer).await;
         if !decision.allow {
             say(&Outbound::Denied);
             say(&Outbound::Bye {

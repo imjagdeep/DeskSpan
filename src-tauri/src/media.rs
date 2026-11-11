@@ -107,9 +107,10 @@ async fn serve(
             Ok(id) => {
                 // macOS 13 with mirrored screens makes the display but never
                 // gives it a size: show a copy instead of a blank screen.
-                let sized = tauri::async_runtime::spawn_blocking(move || crate::video::has_size(id))
-                    .await
-                    .unwrap_or(false);
+                let sized =
+                    tauri::async_runtime::spawn_blocking(move || crate::video::has_size(id))
+                        .await
+                        .unwrap_or(false);
                 if sized {
                     Some(id)
                 } else {
