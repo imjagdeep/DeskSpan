@@ -281,6 +281,15 @@ export const DisplaysIcon = (p: IconProps) => (
     <path d="M5.5 17h5M8 13v4" />
   </Svg>
 );
+export const ConnectIcon = (p: IconProps) => (
+  <Svg {...p}>
+    <rect x="2.5" y="4.5" width="9" height="7" rx="1.3" />
+    <path d="M5 14.5h4" />
+    <rect x="12.5" y="10" width="9" height="7" rx="1.3" />
+    <path d="M15 20h4" />
+    <path d="M7 11.5v2.5a2 2 0 0 0 2 2h3.5" />
+  </Svg>
+);
 export const DevicesIcon = (p: IconProps) => (
   <Svg {...p}>
     <rect x="3.5" y="4" width="10" height="16" rx="1.8" />

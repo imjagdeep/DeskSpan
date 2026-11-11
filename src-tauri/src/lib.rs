@@ -8,8 +8,10 @@ mod adb;
 mod audio;
 mod desklab;
 mod devices;
+mod discover;
 mod h264lib;
 mod input;
+mod keys;
 mod media;
 mod peer;
 mod quality;
@@ -127,6 +129,62 @@ async fn start_sharing(app: AppHandle) -> CmdResult<()> {
 #[tauri::command]
 fn stop_sharing(hub: State<'_, Arc<Hub>>) {
     hub.stop();
+}
+
+/// DeskSpan computers sharing on the network (not this one).
+#[tauri::command]
+async fn find_computers() -> CmdResult<Vec<discover::Found>> {
+    tauri::async_runtime::spawn_blocking(|| discover::find(std::time::Duration::from_millis(1500)))
+        .await
+        .map_err(|e| format!("the search stopped: {e}"))?
+}
+
+/// Show another computer's screen in a DeskSpan window: its screen page
+/// (the same one a phone opens), from its own DeskSpan.
+#[tauri::command]
+async fn open_viewer(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    name: String,
+    address: String,
+) -> CmdResult<()> {
+    use tauri::{WebviewUrl, WebviewWindowBuilder};
+    let port = state.settings().port;
+    let address = discover::normalize_address(&address, port)?;
+    if !discover::is_local_address(&address) {
+        return Err(
+            "DeskSpan only opens computers on your own network (like 192.168.x.x or a .local name)"
+                .into(),
+        );
+    }
+    let me = gethostname::gethostname().to_string_lossy().into_owned();
+    let url = tauri::Url::parse_with_params(
+        &format!("http://{address}/"),
+        &[("viewer", "1"), ("name", me.as_str())],
+    )
+    .map_err(|e| format!("cannot open {address}: {e}"))?;
+    let label = format!(
+        "viewer-{}",
+        address
+            .chars()
+            .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
+            .collect::<String>()
+    );
+    if let Some(w) = app.get_webview_window(&label) {
+        let _ = w.unminimize();
+        let _ = w.show();
+        return w.set_focus().map_err(|e| e.to_string());
+    }
+    let shown = name.trim();
+    let shown = if shown.is_empty() { address.as_str() } else { shown };
+    WebviewWindowBuilder::new(&app, &label, WebviewUrl::External(url))
+        .title(format!("{shown} — DeskSpan"))
+        .inner_size(1280.0, 800.0)
+        .min_inner_size(480.0, 320.0)
+        .center()
+        .build()
+        .map_err(|e| format!("cannot open the window: {e}"))?;
+    Ok(())
 }
 
 #[tauri::command]
@@ -520,6 +578,8 @@ pub fn run() {
             device_set_extend,
             device_set_main,
             device_set_picture,
+            find_computers,
+            open_viewer,
             device_rename,
             screens_layout,
             screens_arrange,

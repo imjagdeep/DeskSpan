@@ -386,6 +386,8 @@ impl Hub {
             g.generation
         };
         self.changed();
+        // Other DeskSpan computers on the network can find this one.
+        crate::discover::announce(port);
         // A cable plugged in (or unplugged) while sharing: follow it.
         let me = self.clone();
         tauri::async_runtime::spawn(async move {
@@ -540,6 +542,7 @@ impl Hub {
 
     /// Stop listening and disconnect every receiver.
     pub fn stop(&self) {
+        crate::discover::withdraw();
         let gone: Vec<u64> = {
             let mut g = self.lock();
             if let Some(r) = g.running.take() {

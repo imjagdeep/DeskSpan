@@ -53,6 +53,9 @@ reqwest = { version = "0.13", default-features = false, features = ["rustls-no-p
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 keyring = "4"
 gethostname = "1"
+# Finding other DeskSpan computers on the network (discover.rs): multicast
+# DNS, like printers and AirPlay speakers. Pure Rust.
+mdns-sd = "0.21.5"
 
 # Windows: control back from devices (input.rs, SendInput) and the
 # computer's sound through WASAPI loopback (audio.rs, cpal).

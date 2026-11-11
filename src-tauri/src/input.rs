@@ -1,6 +1,6 @@
-//! Control back from a receiver: its touches, pen strokes, mouse and scroll
-//! (the "input" data channel) move and click the real pointer on the screen
-//! it shows. Only for devices the user allowed to control the computer, and
+//! Control back from a receiver: its touches, pen strokes, mouse, scroll
+//! and keyboard (the "input" data channel) move and click the real pointer
+//! on the screen it shows and type on this computer. Only for devices the user allowed to control the computer, and
 //! checked here, not just on the receiver.
 //!
 //! Touch and pen act as the left mouse button (one finger at a time);
@@ -8,6 +8,7 @@
 //! needs DeskSpan allowed under Privacy & Security › Accessibility. Linux:
 //! not yet.
 
+use crate::keys::{self, KeyDef};
 use crate::server::Hub;
 use serde::Deserialize;
 use std::sync::mpsc;
@@ -41,6 +42,15 @@ pub enum Event {
     /// Wheel or two-finger scroll, CSS pixels.
     #[serde(rename = "w")]
     Wheel { x: f64, y: f64, dx: f64, dy: f64 },
+    /// A key: e = d(own) or u(p); code = `KeyboardEvent.code`; mac = the
+    /// viewer has a Mac keyboard (Command and Ctrl then swap on a PC).
+    #[serde(rename = "k")]
+    Key {
+        e: String,
+        code: String,
+        #[serde(default)]
+        mac: bool,
+    },
     #[serde(other)]
     Other,
 }
@@ -96,6 +106,11 @@ pub enum Action {
         tilt_x: f64,
         tilt_y: f64,
     },
+    /// A key goes down (again, while held: the key repeats) or up.
+    Key {
+        key: KeyDef,
+        down: bool,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -115,6 +130,8 @@ pub struct Translator {
     active: Option<i64>,
     /// Mouse buttons held, as the receiver's bitmask.
     held: u32,
+    /// Keys held, so they can be let go if the connection ends.
+    keys: Vec<KeyDef>,
 }
 
 impl Translator {
@@ -157,6 +174,30 @@ impl Translator {
                     dx: *dx,
                     dy: *dy,
                 }]
+            }
+            Event::Key { e, code, mac } => {
+                let swap = *mac != cfg!(target_os = "macos");
+                let Some(key) = keys::find(code, swap) else {
+                    return Vec::new();
+                };
+                match e.as_str() {
+                    "d" => {
+                        if !self.keys.contains(&key) {
+                            self.keys.push(key);
+                        }
+                        vec![Action::Key { key, down: true }]
+                    }
+                    "u" => {
+                        let before = self.keys.len();
+                        self.keys.retain(|k| *k != key);
+                        if self.keys.len() < before {
+                            vec![Action::Key { key, down: false }]
+                        } else {
+                            Vec::new()
+                        }
+                    }
+                    _ => Vec::new(),
+                }
             }
             Event::Other => Vec::new(),
         }
@@ -216,11 +257,19 @@ impl Translator {
             held |= 1;
         }
         self.held = 0;
-        BUTTONS
-            .iter()
-            .filter(|(bit, _)| held & bit != 0)
-            .map(|&(_, button)| Action::Up { x, y, button })
-            .collect()
+        let mut out: Vec<Action> = self
+            .keys
+            .drain(..)
+            .rev()
+            .map(|key| Action::Key { key, down: false })
+            .collect();
+        out.extend(
+            BUTTONS
+                .iter()
+                .filter(|(bit, _)| held & bit != 0)
+                .map(|&(_, button)| Action::Up { x, y, button }),
+        );
+        out
     }
 }
 
@@ -402,6 +451,32 @@ impl System {
         let input = match a {
             // Pressure reaches Windows apps with drawing-tablet mode, later.
             Action::Pen { .. } => return,
+            Action::Key { key, down } => {
+                if key.win == keys::NONE {
+                    return;
+                }
+                let mut flags = KEYBD_EVENT_FLAGS(0);
+                if key.ext {
+                    flags |= KEYEVENTF_EXTENDEDKEY;
+                }
+                if !down {
+                    flags |= KEYEVENTF_KEYUP;
+                }
+                // The scan code too: some apps read that instead.
+                let scan = unsafe { MapVirtualKeyW(u32::from(key.win), MAPVK_VK_TO_VSC) } as u16;
+                INPUT {
+                    r#type: INPUT_KEYBOARD,
+                    Anonymous: INPUT_0 {
+                        ki: KEYBDINPUT {
+                            wVk: VIRTUAL_KEY(key.win),
+                            wScan: scan,
+                            dwFlags: flags,
+                            time: 0,
+                            dwExtraInfo: 0,
+                        },
+                    },
+                }
+            }
             Action::Move { x, y } => mouse(x, y, MOUSE_EVENT_FLAGS(0), 0),
             Action::Down { x, y, button } => mouse(
                 x,
@@ -443,6 +518,9 @@ impl System {
 #[cfg(target_os = "macos")]
 struct System {
     held: Option<Button>,
+    /// Modifier keys held (Shift, Ctrl, Option, Command): their flags go on
+    /// every event.
+    mods: Vec<KeyDef>,
     /// Pressure and tilt of a pen that is drawing (until it lifts).
     pen: Option<(f64, f64, f64)>,
     told: bool,
@@ -460,6 +538,7 @@ impl System {
     fn new(app: &tauri::AppHandle) -> Self {
         System {
             held: None,
+            mods: Vec::new(),
             pen: None,
             told: false,
             app: app.clone(),
@@ -488,6 +567,23 @@ impl System {
         false
     }
 
+    /// The modifier flags for the keys held now.
+    fn flags(&self) -> objc2_core_graphics::CGEventFlags {
+        use crate::keys::Modifier;
+        use objc2_core_graphics::CGEventFlags;
+        let mut f = CGEventFlags(0);
+        for k in &self.mods {
+            f |= match k.modifier {
+                Some(Modifier::Shift) => CGEventFlags::MaskShift,
+                Some(Modifier::Control) => CGEventFlags::MaskControl,
+                Some(Modifier::Alt) => CGEventFlags::MaskAlternate,
+                Some(Modifier::Meta) => CGEventFlags::MaskCommand,
+                None => CGEventFlags(0),
+            };
+        }
+        f
+    }
+
     fn apply(&mut self, a: Action) {
         use objc2_core_foundation::CGPoint;
         use objc2_core_graphics::{
@@ -497,6 +593,22 @@ impl System {
         if !self.check_trusted() {
             return;
         }
+        if let Action::Key { key, down } = a {
+            if key.mac == keys::NONE {
+                return;
+            }
+            if key.modifier.is_some() {
+                self.mods.retain(|k| *k != key);
+                if down {
+                    self.mods.push(key);
+                }
+            }
+            let ev = CGEvent::new_keyboard_event(None, key.mac, down);
+            CGEvent::set_flags(ev.as_deref(), self.flags());
+            CGEvent::post(CGEventTapLocation::HIDEventTap, ev.as_deref());
+            return;
+        }
+        let flags = self.flags();
         let cg = |b: Button| match b {
             Button::Left => CGMouseButton::Left,
             Button::Right => CGMouseButton::Right,
@@ -505,6 +617,8 @@ impl System {
         let pen = self.pen;
         let post = |kind: CGEventType, x: f64, y: f64, b: CGMouseButton| {
             let ev = CGEvent::new_mouse_event(None, kind, CGPoint { x, y }, b);
+            // Command-click, Shift-click...
+            CGEvent::set_flags(ev.as_deref(), flags);
             // A pen: mark the event as a tablet point with its pressure and
             // tilt, which drawing apps read (Apple Pencil from an iPad).
             if let Some((pressure, tilt_x, tilt_y)) = pen {
@@ -531,6 +645,8 @@ impl System {
                 tilt_x,
                 tilt_y,
             } => self.pen = Some((pressure, tilt_x, tilt_y)),
+            // Handled above.
+            Action::Key { .. } => {}
             Action::Move { x, y } => {
                 // While a button is held, macOS expects "dragged" events.
                 let kind = match self.held {
@@ -642,6 +758,66 @@ mod tests {
             Event::Wheel { .. }
         ));
         assert_eq!(ev(r#"{"k":"key","code":"KeyA"}"#), Event::Other);
+        assert_eq!(
+            ev(r#"{"k":"k","e":"d","code":"KeyA","mac":true}"#),
+            Event::Key {
+                e: "d".into(),
+                code: "KeyA".into(),
+                mac: true
+            }
+        );
+    }
+
+    #[test]
+    fn keys_go_down_repeat_and_are_let_go_at_the_end() {
+        let mut t = Translator::default();
+        let a = t.translate(&ev(r#"{"k":"k","e":"d","code":"KeyA"}"#), R);
+        assert!(matches!(a.as_slice(), [Action::Key { down: true, .. }]));
+        // Held: the browser repeats keydown, so does the computer.
+        assert_eq!(
+            t.translate(&ev(r#"{"k":"k","e":"d","code":"KeyA"}"#), R)
+                .len(),
+            1
+        );
+        // An up for a key that isn't down does nothing.
+        assert!(t
+            .translate(&ev(r#"{"k":"k","e":"u","code":"KeyB"}"#), R)
+            .is_empty());
+        // Unknown keys are ignored.
+        assert!(t
+            .translate(&ev(r#"{"k":"k","e":"d","code":"Fn"}"#), R)
+            .is_empty());
+        t.translate(&ev(r#"{"k":"k","e":"d","code":"ShiftLeft"}"#), R);
+        let left = t.release((0.0, 0.0));
+        assert_eq!(left.len(), 2);
+        assert!(left
+            .iter()
+            .all(|a| matches!(a, Action::Key { down: false, .. })));
+        assert!(t.release((0.0, 0.0)).is_empty());
+    }
+
+    #[test]
+    fn command_c_copies_on_the_other_kind_of_computer() {
+        let mut t = Translator::default();
+        let from_mac = t.translate(
+            &ev(r#"{"k":"k","e":"d","code":"MetaLeft","mac":true}"#),
+            R,
+        );
+        let from_pc = t.translate(
+            &ev(r#"{"k":"k","e":"d","code":"ControlLeft","mac":false}"#),
+            R,
+        );
+        let code = |v: &[Action]| match v {
+            [Action::Key { key, .. }] => key.code,
+            _ => "",
+        };
+        if cfg!(target_os = "macos") {
+            assert_eq!(code(&from_mac), "MetaLeft");
+            assert_eq!(code(&from_pc), "MetaLeft");
+        } else {
+            assert_eq!(code(&from_mac), "ControlLeft");
+            assert_eq!(code(&from_pc), "ControlLeft");
+        }
     }
 
     #[test]

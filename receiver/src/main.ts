@@ -14,6 +14,11 @@ const HOST = (() => {
   const h = new URLSearchParams(location.search).get("host");
   return h && /^[\w.:[\]-]+$/.test(h) ? h : location.host;
 })();
+// Opened in another computer's DeskSpan window (Connect): that window is
+// the screen already, and ?name= is that computer's name.
+const PARAMS = new URLSearchParams(location.search);
+const IN_APP = PARAMS.get("viewer") === "1";
+const APP_NAME = (PARAMS.get("name") ?? "").slice(0, 60);
 const video = $<HTMLVideoElement>("screen");
 const panel = $<HTMLElement>("panel");
 const title = $<HTMLElement>("title");
@@ -72,7 +77,7 @@ function save(s: Saved) {
 }
 
 let saved = loadSaved();
-const deviceName = () => saved.name || guessDeviceName(navigator.userAgent, navigator.maxTouchPoints || 0);
+const deviceName = () => saved.name || APP_NAME || guessDeviceName(navigator.userAgent, navigator.maxTouchPoints || 0);
 
 // A one-time link from the QR code: #t=<token>. Taken out of the address bar
 // so it isn't bookmarked or shared by accident.
@@ -251,7 +256,8 @@ async function onMessage(raw: string) {
       }
       host = m.host;
       barHost.textContent = m.host;
-      if (autoScreen()) startScreen();
+      // In a DeskSpan window the screen is the point: start it straight away.
+      if (IN_APP || autoScreen()) startScreen();
       else showHome();
       break;
     case "offer":
@@ -473,7 +479,7 @@ function enterFullScreen() {
 /** Browsers only go full screen after a tap, so offer a big button. */
 let fsSkipped = false;
 function offerFullScreen() {
-  fsPrompt.hidden = fsSkipped || !canFullScreen() || inFullScreen();
+  fsPrompt.hidden = IN_APP || fsSkipped || !canFullScreen() || inFullScreen();
 }
 
 fsGo.addEventListener("click", () => {
@@ -589,6 +595,31 @@ video.addEventListener(
   { passive: false },
 );
 video.addEventListener("contextmenu", (e) => e.preventDefault());
+
+// Keys go to the computer while its screen shows and control is allowed.
+// Shortcuts the OS keeps for itself (Alt+Tab, Command+Tab) stay here.
+const MAC_KEYBOARD = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
+const keysDown = new Set<string>();
+function keyEvent(e: KeyboardEvent, kind: "d" | "u") {
+  if (!document.body.classList.contains("live") || !control || !e.code) return;
+  // The page's own fields (the code form) keep their keys.
+  if (e.target instanceof HTMLInputElement) return;
+  e.preventDefault();
+  if (kind === "d") keysDown.add(e.code);
+  else if (!keysDown.delete(e.code)) return;
+  sendInput({ k: "k", e: kind, code: e.code, mac: MAC_KEYBOARD });
+}
+function releaseKeys() {
+  for (const code of keysDown) sendInput({ k: "k", e: "u", code, mac: MAC_KEYBOARD });
+  keysDown.clear();
+}
+window.addEventListener("keydown", (e) => keyEvent(e, "d"));
+window.addEventListener("keyup", (e) => keyEvent(e, "u"));
+// Switching away mid-press: nothing stays held on the computer.
+window.addEventListener("blur", releaseKeys);
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "hidden") releaseKeys();
+});
 
 if (!("RTCPeerConnection" in window)) {
   show("message", "This browser can't be a screen", "Open this page in a current version of Safari, Chrome, Edge or Firefox.");

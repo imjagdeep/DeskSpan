@@ -81,7 +81,9 @@ export type InputEvent =
   /** pointer: d(own) m(ove) u(p) c(ancel); x/y 0..1 of the picture */
   | { k: "p"; e: "d" | "m" | "u" | "c"; id: number; pt: "t" | "p" | "m"; x: number; y: number; pr: number; tx: number; ty: number; b: number }
   /** wheel / two-finger scroll, in CSS pixels */
-  | { k: "w"; x: number; y: number; dx: number; dy: number };
+  | { k: "w"; x: number; y: number; dx: number; dy: number }
+  /** a key by position (KeyboardEvent.code): d(own) or u(p); mac = a Mac keyboard */
+  | { k: "k"; e: "d" | "u"; code: string; mac: boolean };
 
 /** "iPad", "Android tablet", "Windows PC"… a starting name the user can change. */
 export function guessDeviceName(ua: string, touchPoints: number): string {

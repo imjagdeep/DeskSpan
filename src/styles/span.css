@@ -68,3 +68,9 @@
 
 /* account.css paints every button.danger red; the Devices "Remove" link must stay a link. */
 button.link.danger, button.link.danger:hover:not(:disabled) { background: none; }
+
+/* Connect */
+.connect-empty { display: flex; gap: 14px; align-items: center; padding: 6px 0; }
+.connect-empty svg { flex: none; opacity: 0.6; }
+.connect-form { gap: 8px; flex-wrap: wrap; }
+.connect-form input { flex: 1 1 240px; min-width: 0; }

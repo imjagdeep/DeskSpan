@@ -19,6 +19,7 @@ import { TopBar } from "./shell/TopBar";
 import { applySavedZoom } from "./shell/shell";
 import { NewDisplay } from "./components/NewDisplay";
 import { Displays } from "./pages/Displays";
+import { Connect } from "./pages/Connect";
 
 export default function App() {
   const [page, setPageRaw] = useState<Page>("share");
@@ -90,6 +91,7 @@ export default function App() {
         <Sidebar page={page} onNavigate={setPage} />
         <main className="content" ref={content}>
           {page === "share" && <Share />}
+          {page === "connect" && <Connect />}
           {page === "devices" && <Devices />}
           {page === "displays" && <Displays />}
           {page === "account" && <AccountPage app="DeskSpan" toast={toast} />}

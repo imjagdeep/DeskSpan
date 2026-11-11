@@ -125,6 +125,14 @@ export interface ScreenLayout {
   mode: "extend" | "duplicate";
 }
 
+/** Another DeskSpan computer sharing on the network. */
+export interface FoundComputer {
+  name: string;
+  /** "ip:port", on this computer's network where possible */
+  address: string;
+  addresses: string[];
+}
+
 export const api = {
   screensLayout: () => invoke<ScreenLayout>("screens_layout"),
   screensArrange: (places: { id: string; x: number; y: number }[]) => invoke<void>("screens_arrange", { places }),
@@ -132,6 +140,10 @@ export const api = {
   screensSetMode: (duplicate: boolean) => invoke<void>("screens_set_mode", { duplicate }),
 
   appInfo: () => invoke<AppInfo>("app_info"),
+  /** DeskSpan computers sharing on the network (takes ~1.5 s). */
+  findComputers: () => invoke<FoundComputer[]>("find_computers"),
+  /** Its screen in a DeskSpan window. */
+  openViewer: (name: string, address: string) => invoke<void>("open_viewer", { name, address }),
   getSettings: () => invoke<Settings>("get_settings"),
   /** Saved (and tidied) settings come back. */
   saveSettings: (settings: Settings) => invoke<Settings>("save_settings", { settings }),

@@ -7,5 +7,20 @@
 	     bar icon. Tauri merges this into the bundle's Info.plist. -->
 	<key>LSUIElement</key>
 	<true/>
+	<!-- Connect: another computer's screen page is plain http on the home
+	     network (192.168.x.x), opened in a DeskSpan window. -->
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsLocalNetworking</key>
+		<true/>
+		<key>NSAllowsArbitraryLoadsInWebContent</key>
+		<true/>
+	</dict>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>DeskSpan finds and connects to your other computers, phones and tablets on this network.</string>
+	<key>NSBonjourServices</key>
+	<array>
+		<string>_deskspan._tcp</string>
+	</array>
 </dict>
 </plist>
