@@ -393,16 +393,21 @@ fn grab(monitor: &xcap::Monitor, _quality: &Quality) -> Result<(Vec<u8>, u32, u3
 }
 
 /// The screen to capture: the main one (or the first), or the display with
-/// this ID. A just-made virtual display can take a moment to be listed.
+/// this ID. A just-made virtual display can take a moment to be listed
+/// and to get its size (macOS 13 reports 0×0 at first).
 fn monitor_for(target: Option<u32>) -> Result<xcap::Monitor, String> {
-    for attempt in 0..15 {
+    for attempt in 0..25 {
         let all = xcap::Monitor::all().map_err(|e| format!("cannot list the screens: {e}"))?;
         let found = match target {
             None => all
                 .iter()
                 .position(|m| m.is_primary().unwrap_or(false))
                 .or(if all.is_empty() { None } else { Some(0) }),
-            Some(id) => all.iter().position(|m| m.id().ok() == Some(id)),
+            Some(id) => all.iter().position(|m| {
+                m.id().ok() == Some(id)
+                    && m.width().unwrap_or(0) > 0
+                    && m.height().unwrap_or(0) > 0
+            }),
         };
         if let Some(i) = found {
             return all
@@ -410,14 +415,16 @@ fn monitor_for(target: Option<u32>) -> Result<xcap::Monitor, String> {
                 .nth(i)
                 .ok_or_else(|| "no screen found".to_string());
         }
-        if target.is_none() || attempt == 14 {
+        if target.is_none() || attempt == 24 {
             break;
         }
         std::thread::sleep(Duration::from_millis(200));
     }
     Err(match target {
         None => "no screen found".to_string(),
-        Some(id) => format!("the extra display ({id}) didn't appear"),
+        Some(id) => format!(
+            "the extra display ({id}) didn't get a size; if this computer mirrors its screens, turn mirroring off in Displays settings"
+        ),
     })
 }
 
