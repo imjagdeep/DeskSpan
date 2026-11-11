@@ -24,6 +24,8 @@ pub struct Join {
     pub name: String,
     pub screen: Option<ScreenInfo>,
     pub extend: bool,
+    /// Extend only: make its display the main screen.
+    pub main: bool,
     /// Connected by USB cable: the picture goes over the cable too.
     pub usb: bool,
 }
@@ -120,6 +122,21 @@ async fn serve(
             .lock()
             .unwrap_or_else(|p| p.into_inner())
             .insert(session, id);
+        // macOS only for now: Windows' virtual monitor ID isn't the
+        // Displays page's screen ID.
+        if join.main && cfg!(target_os = "macos") {
+            // When the device leaves, its display goes and the OS picks
+            // another main screen by itself, so this can't strand the user.
+            if let Err(why) = make_main(id).await {
+                tracing::warn!("session {session}: cannot make display {id} the main screen: {why}");
+                hub.send(
+                    session,
+                    &Outbound::Notice {
+                        text: &format!("This screen couldn't become the main display: {why}"),
+                    },
+                );
+            }
+        }
     }
     let video = match display {
         Some(id) => Video::for_display(data_dir, id),
@@ -157,6 +174,26 @@ async fn serve(
             .remove(&session);
         remove_display(&app, id);
     }
+}
+
+/// Make a new extend display the main screen. It can take a moment to
+/// appear in the screen list, so try a few times.
+async fn make_main(id: u32) -> Result<(), String> {
+    let key = id.to_string();
+    let mut last = String::new();
+    for _ in 0..6 {
+        let k = key.clone();
+        match tauri::async_runtime::spawn_blocking(move || crate::screens::set_main(&k)).await {
+            Ok(Ok(())) => {
+                tracing::info!("display {id} is now the main screen");
+                return Ok(());
+            }
+            Ok(Err(e)) => last = e,
+            Err(e) => last = format!("internal error: {e}"),
+        }
+        tokio::time::sleep(Duration::from_millis(500)).await;
+    }
+    Err(last)
 }
 
 /// A stable number per device: macOS remembers where each display was

@@ -29,6 +29,14 @@ pub enum Event {
         /// Mouse buttons held (1 left, 2 right, 4 middle).
         #[serde(default)]
         b: u32,
+        /// Pen pressure 0..1 (browsers report 0.5 for a pressed finger or mouse).
+        #[serde(default)]
+        pr: f64,
+        /// Pen tilt, degrees -90..90.
+        #[serde(default)]
+        tx: f64,
+        #[serde(default)]
+        ty: f64,
     },
     /// Wheel or two-finger scroll, CSS pixels.
     #[serde(rename = "w")]
@@ -65,6 +73,9 @@ pub enum Action {
     Down { x: f64, y: f64, button: Button },
     Up { x: f64, y: f64, button: Button },
     Scroll { x: f64, y: f64, dx: f64, dy: f64 },
+    /// A pen is drawing: the pressure (0..1) and tilt (-1..1) for the events
+    /// that follow, until the pen lifts. macOS passes them on as tablet events.
+    Pen { pressure: f64, tilt_x: f64, tilt_y: f64 },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -89,13 +100,34 @@ pub struct Translator {
 impl Translator {
     pub fn translate(&mut self, ev: &Event, rect: Rect) -> Vec<Action> {
         match ev {
-            Event::Pointer { e, id, pt, x, y, b } => {
+            Event::Pointer {
+                e,
+                id,
+                pt,
+                x,
+                y,
+                b,
+                pr,
+                tx,
+                ty,
+            } => {
                 let (x, y) = rect.point(*x, *y);
                 if pt == "m" {
-                    self.mouse(e, *b, x, y)
-                } else {
-                    self.touch(e, *id, x, y)
+                    return self.mouse(e, *b, x, y);
                 }
+                let mut out = self.touch(e, *id, x, y);
+                // A pen touching down or drawing: its pressure and tilt go first.
+                if pt == "p" && matches!(e.as_str(), "d" | "m") && !out.is_empty() {
+                    out.insert(
+                        0,
+                        Action::Pen {
+                            pressure: pr.clamp(0.0, 1.0),
+                            tilt_x: (tx / 90.0).clamp(-1.0, 1.0),
+                            tilt_y: (ty / 90.0).clamp(-1.0, 1.0),
+                        },
+                    );
+                }
+                out
             }
             Event::Wheel { x, y, dx, dy } => {
                 let (x, y) = rect.point(*x, *y);
@@ -348,6 +380,8 @@ impl System {
             }
         };
         let input = match a {
+            // Pressure reaches Windows apps with drawing-tablet mode, later.
+            Action::Pen { .. } => return,
             Action::Move { x, y } => mouse(x, y, MOUSE_EVENT_FLAGS(0), 0),
             Action::Down { x, y, button } => mouse(
                 x,
@@ -389,6 +423,8 @@ impl System {
 #[cfg(target_os = "macos")]
 struct System {
     held: Option<Button>,
+    /// Pressure and tilt of a pen that is drawing (until it lifts).
+    pen: Option<(f64, f64, f64)>,
     told: bool,
     app: tauri::AppHandle,
 }
@@ -404,6 +440,7 @@ impl System {
     fn new(app: &tauri::AppHandle) -> Self {
         System {
             held: None,
+            pen: None,
             told: false,
             app: app.clone(),
         }
@@ -434,7 +471,8 @@ impl System {
     fn apply(&mut self, a: Action) {
         use objc2_core_foundation::CGPoint;
         use objc2_core_graphics::{
-            CGEvent, CGEventTapLocation, CGEventType, CGMouseButton, CGScrollEventUnit,
+            CGEvent, CGEventField, CGEventMouseSubtype, CGEventTapLocation, CGEventType,
+            CGMouseButton, CGScrollEventUnit,
         };
         if !self.check_trusted() {
             return;
@@ -444,11 +482,35 @@ impl System {
             Button::Right => CGMouseButton::Right,
             Button::Middle => CGMouseButton::Center,
         };
+        let pen = self.pen;
         let post = |kind: CGEventType, x: f64, y: f64, b: CGMouseButton| {
             let ev = CGEvent::new_mouse_event(None, kind, CGPoint { x, y }, b);
+            // A pen: mark the event as a tablet point with its pressure and
+            // tilt, which drawing apps read (Apple Pencil from an iPad).
+            if let Some((pressure, tilt_x, tilt_y)) = pen {
+                let e = ev.as_deref();
+                CGEvent::set_integer_value_field(
+                    e,
+                    CGEventField::MouseEventSubtype,
+                    CGEventMouseSubtype::TabletPoint.0 as i64,
+                );
+                CGEvent::set_double_value_field(e, CGEventField::MouseEventPressure, pressure);
+                CGEvent::set_double_value_field(
+                    e,
+                    CGEventField::TabletEventPointPressure,
+                    pressure,
+                );
+                CGEvent::set_double_value_field(e, CGEventField::TabletEventTiltX, tilt_x);
+                CGEvent::set_double_value_field(e, CGEventField::TabletEventTiltY, tilt_y);
+            }
             CGEvent::post(CGEventTapLocation::HIDEventTap, ev.as_deref());
         };
         match a {
+            Action::Pen {
+                pressure,
+                tilt_x,
+                tilt_y,
+            } => self.pen = Some((pressure, tilt_x, tilt_y)),
             Action::Move { x, y } => {
                 // While a button is held, macOS expects "dragged" events.
                 let kind = match self.held {
@@ -478,6 +540,7 @@ impl System {
                     Button::Middle => CGEventType::OtherMouseUp,
                 };
                 post(kind, x, y, cg(button));
+                self.pen = None;
             }
             Action::Scroll { dx, dy, .. } => {
                 let ev = CGEvent::new_scroll_wheel_event2(
@@ -548,7 +611,10 @@ mod tests {
                 pt: "t".into(),
                 x: 0.5,
                 y: 0.25,
-                b: 1
+                b: 1,
+                pr: 0.5,
+                tx: 0.0,
+                ty: 0.0,
             }
         );
         assert!(matches!(
@@ -556,6 +622,42 @@ mod tests {
             Event::Wheel { .. }
         ));
         assert_eq!(ev(r#"{"k":"key","code":"KeyA"}"#), Event::Other);
+    }
+
+    #[test]
+    fn a_pen_carries_pressure_and_tilt_until_it_lifts() {
+        let mut t = Translator::default();
+        let down = t.translate(
+            &ev(r#"{"k":"p","e":"d","id":7,"pt":"p","x":0,"y":0,"pr":0.8,"tx":45,"ty":-90,"b":1}"#),
+            R,
+        );
+        assert_eq!(
+            down[0],
+            Action::Pen {
+                pressure: 0.8,
+                tilt_x: 0.5,
+                tilt_y: -1.0
+            }
+        );
+        assert!(matches!(down[1], Action::Move { .. }));
+        assert!(matches!(down[2], Action::Down { button: Button::Left, .. }));
+        let drag = t.translate(
+            &ev(r#"{"k":"p","e":"m","id":7,"pt":"p","x":0.5,"y":0.5,"pr":1.7,"tx":0,"ty":0,"b":1}"#),
+            R,
+        );
+        // Out-of-range pressure is clamped.
+        assert!(matches!(drag[0], Action::Pen { pressure, .. } if pressure == 1.0));
+        let up = t.translate(
+            &ev(r#"{"k":"p","e":"u","id":7,"pt":"p","x":0.5,"y":0.5,"pr":0,"tx":0,"ty":0,"b":0}"#),
+            R,
+        );
+        assert!(matches!(up.as_slice(), [Action::Up { .. }]));
+        // A finger never sends pen data.
+        let finger = t.translate(
+            &ev(r#"{"k":"p","e":"d","id":1,"pt":"t","x":0,"y":0,"pr":0.5,"tx":0,"ty":0,"b":1}"#),
+            R,
+        );
+        assert!(!finger.iter().any(|a| matches!(a, Action::Pen { .. })));
     }
 
     #[test]

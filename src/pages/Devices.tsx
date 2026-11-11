@@ -5,10 +5,13 @@ import { Empty, PageHeader } from "../components/Common";
 import { DevicesIcon } from "../components/Icons";
 import { api, type Device } from "../lib/api";
 import { since, useHub } from "../lib/hub";
-import { toast, toastError } from "../lib/store";
+import { toast, toastError, useAppInfo } from "../lib/store";
 
 export function Devices() {
   const hub = useHub();
+  const info = useAppInfo();
+  // Making a device's display the main screen works on macOS for now.
+  const canMain = info?.platform === "macos";
   const [list, setList] = useState<Device[] | null>(null);
   const load = useCallback(() => api.devices().then(setList).catch(toastError), []);
   // The hub changes when a device is added, connects or is removed.
@@ -43,6 +46,16 @@ export function Devices() {
       await api.setExtend(d.id, extend);
       await load();
       if (online.has(d.id)) toast(`${d.name} switches to ${extend ? "extend" : "mirror"} the next time it connects.`);
+    } catch (e) {
+      toastError(e);
+    }
+  };
+
+  const setMain = async (d: Device, on: boolean) => {
+    try {
+      await api.setMainDisplay(d.id, on);
+      await load();
+      if (online.has(d.id)) toast(`${d.name} ${on ? "becomes" : "stops being"} the main display the next time it connects.`);
     } catch (e) {
       toastError(e);
     }
@@ -111,6 +124,12 @@ export function Devices() {
                     Mirror
                   </button>
                 </div>
+                {canMain && d.extend && (
+                  <label className="toggle" title="Its screen becomes the main display: the menu bar and new windows go there. For a Mac with no monitor, like a Mac mini.">
+                    <input type="checkbox" checked={d.main} onChange={(e) => void setMain(d, e.target.checked)} />
+                    <span>Main display</span>
+                  </label>
+                )}
                 <label className="toggle" title="Touch, pen and mouse on the device act on this computer">
                   <input type="checkbox" checked={d.control} onChange={(e) => void setControl(d, e.target.checked)} />
                   <span>Can control</span>
