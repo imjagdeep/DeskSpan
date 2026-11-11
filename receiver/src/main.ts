@@ -175,7 +175,13 @@ function authNow(): Auth | null {
   if (pendingAuth) return pendingAuth;
   if (saved.id && saved.key) return { kind: "device", id: saved.id, key: saved.key };
   if (token) return { kind: "token", token };
+  // A DeskSpan window: the other computer just asks its user.
+  if (IN_APP) return { kind: "ask" };
   return null;
+}
+
+function hello(auth: Auth) {
+  send({ t: "hello", name: deviceName(), screen: screenInfo(), auth, viewer: IN_APP });
 }
 
 function connect() {
@@ -192,7 +198,7 @@ function connect() {
   ws = sock;
   sock.onopen = () => {
     retryDelay = 1000;
-    send({ t: "hello", name: deviceName(), screen: screenInfo(), auth });
+    hello(auth);
   };
   sock.onmessage = (ev) => {
     if (typeof ev.data === "string") void onMessage(ev.data);
@@ -226,10 +232,14 @@ async function onMessage(raw: string) {
       save(saved);
       if (hadKey && token) {
         // Try the pairing link this page was opened with.
-        send({ t: "hello", name: deviceName(), screen: screenInfo(), auth: { kind: "token", token } });
+        hello({ kind: "token", token });
         break;
       }
       token = null;
+      if (IN_APP) {
+        hello({ kind: "ask" });
+        break;
+      }
       show("code", "Enter the code", "Open DeskSpan on the computer: the code is under the QR code.");
       break;
     }
@@ -240,7 +250,11 @@ async function onMessage(raw: string) {
     case "wait":
       token = null;
       pendingAuth = null;
-      show("wait", "Allow this device on the computer", `DeskSpan on the computer is asking whether "${deviceName()}" may connect.`);
+      show(
+        "wait",
+        IN_APP ? "Click Allow on the other computer" : "Allow this device on the computer",
+        `DeskSpan on the computer is asking whether "${deviceName()}" may connect.`,
+      );
       break;
     case "denied":
       show("message", "Not allowed", "The computer said no. You can ask again.", true);
@@ -363,7 +377,7 @@ codeForm.addEventListener("submit", (ev) => {
   pendingAuth = { kind: "code", code };
   if (ws && ws.readyState === WebSocket.OPEN) {
     show("connecting", "Checking the code…");
-    send({ t: "hello", name: deviceName(), screen: screenInfo(), auth: pendingAuth });
+    hello(pendingAuth);
   } else {
     connect();
   }

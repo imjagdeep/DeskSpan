@@ -60,6 +60,9 @@ pub enum Auth {
     Token { token: String },
     Code { code: String },
     Device { id: String, key: String },
+    /// From another computer's DeskSpan window (Connect): no code, the
+    /// user here just answers Allow or Don't allow.
+    Ask,
 }
 
 /// From a receiver.
@@ -70,6 +73,9 @@ pub enum Inbound {
         name: String,
         screen: Option<ScreenInfo>,
         auth: Auth,
+        /// Another computer's DeskSpan window: starts as a mirror.
+        #[serde(default)]
+        viewer: bool,
     },
     Answer {
         sdp: String,
@@ -153,6 +159,8 @@ struct Request {
     id: String,
     name: String,
     address: String,
+    /// Another computer (Connect), not a phone or tablet.
+    computer: bool,
     answer: oneshot::Sender<Decision>,
 }
 
@@ -243,6 +251,7 @@ pub struct RequestView {
     pub id: String,
     pub name: String,
     pub address: String,
+    pub computer: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -347,6 +356,7 @@ impl Hub {
                     id: r.id.clone(),
                     name: r.name.clone(),
                     address: r.address.clone(),
+                    computer: r.computer,
                 })
                 .collect(),
         }
@@ -729,7 +739,7 @@ impl Hub {
         let ok = match auth {
             Auth::Token { token } => secret::same(token, &p.token),
             Auth::Code { code } => secret::same(code.trim(), &p.code),
-            Auth::Device { .. } => false,
+            Auth::Device { .. } | Auth::Ask => false,
         };
         if ok {
             // Used once: the next device needs a new link or code.
@@ -761,7 +771,7 @@ impl Hub {
     }
 
     /// Show "Allow <name>?" on the computer and wait for the answer.
-    async fn ask(&self, name: &str, address: &str) -> Decision {
+    async fn ask(&self, name: &str, address: &str, computer: bool) -> Decision {
         let (tx, rx) = oneshot::channel();
         let id = match secret::random_hex(8) {
             Ok(id) => id,
@@ -777,6 +787,7 @@ impl Hub {
             id: id.clone(),
             name: name.to_string(),
             address: address.to_string(),
+            computer,
             answer: tx,
         });
         self.changed();
@@ -1163,7 +1174,13 @@ async fn receiver(hub: Arc<Hub>, socket: WebSocket, addr: SocketAddr) {
                 return;
             }
         };
-        let Inbound::Hello { name, screen, auth } = msg else {
+        let Inbound::Hello {
+            name,
+            screen,
+            auth,
+            viewer,
+        } = msg
+        else {
             continue;
         };
         if let Auth::Device { id, key } = &auth {
@@ -1176,12 +1193,25 @@ async fn receiver(hub: Arc<Hub>, socket: WebSocket, addr: SocketAddr) {
                 }
             }
         }
-        if let Err(reply) = hub.check_pairing(&auth) {
+        if let Auth::Ask = auth {
+            // No code: one question at a time per address, so nobody can
+            // flood the screen with requests.
+            let asking = hub.lock().requests.iter().any(|r| r.address == address);
+            if asking {
+                say(&Outbound::Bye {
+                    reason: "This computer is already waiting for an answer.",
+                });
+                let _ = writer.await;
+                return;
+            }
+        } else if let Err(reply) = hub.check_pairing(&auth) {
             say(&reply);
             continue;
         }
         say(&Outbound::Wait);
-        let decision = hub.ask(&devices::clean_name(&name), &address).await;
+        let decision = hub
+            .ask(&devices::clean_name(&name), &address, viewer)
+            .await;
         if !decision.allow {
             say(&Outbound::Denied);
             say(&Outbound::Bye {
@@ -1193,6 +1223,13 @@ async fn receiver(hub: Arc<Hub>, socket: WebSocket, addr: SocketAddr) {
         let added = hub.lock().devices.add(&name, decision.control);
         match added {
             Ok((id, key)) => {
+                // A computer looking at this one: a copy of the screen
+                // (extending onto another computer comes later).
+                if viewer {
+                    if let Err(e) = hub.lock().devices.set_extend(&id, false) {
+                        tracing::warn!("{e}");
+                    }
+                }
                 let d = hub.lock().devices.check(&id, &key);
                 match d {
                     Some(d) => break (d, Some(key), screen),
@@ -1440,6 +1477,19 @@ mod tests {
             m,
             Inbound::Hello {
                 auth: Auth::Code { .. },
+                viewer: false,
+                ..
+            }
+        ));
+        let m: Inbound = serde_json::from_str(
+            r#"{"t":"hello","name":"jaggi","screen":null,"auth":{"kind":"ask"},"viewer":true}"#,
+        )
+        .unwrap();
+        assert!(matches!(
+            m,
+            Inbound::Hello {
+                auth: Auth::Ask,
+                viewer: true,
                 ..
             }
         ));

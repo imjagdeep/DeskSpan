@@ -104,7 +104,26 @@ async fn serve(
         let plan = DisplayPlan::for_screen(s.w, s.h, s.dpr);
         let name = format!("DeskSpan – {}", join.name);
         match extend_display(&app, name, serial_for(&join.device_id), plan).await {
-            Ok(id) => Some(id),
+            Ok(id) => {
+                // macOS 13 with mirrored screens makes the display but never
+                // gives it a size: show a copy instead of a blank screen.
+                let sized = tauri::async_runtime::spawn_blocking(move || crate::video::has_size(id))
+                    .await
+                    .unwrap_or(false);
+                if sized {
+                    Some(id)
+                } else {
+                    tracing::warn!("session {session}: extra display {id} got no size");
+                    remove_display(&app, id);
+                    hub.send(
+                        session,
+                        &Outbound::Notice {
+                            text: "Showing a copy of the main screen: the computer didn't set up the extra display. If its screens are mirrored, turn mirroring off in its Displays settings to extend.",
+                        },
+                    );
+                    None
+                }
+            }
             Err(why) => {
                 tracing::warn!("session {session}: no extra display: {why}");
                 hub.send(

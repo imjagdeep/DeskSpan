@@ -392,6 +392,11 @@ fn grab(monitor: &xcap::Monitor, _quality: &Quality) -> Result<(Vec<u8>, u32, u3
     Ok((shot.into_raw(), w, h))
 }
 
+/// Does this display have a size yet? Waits up to ~5 s (see `monitor_for`).
+pub fn has_size(display_id: u32) -> bool {
+    monitor_for(Some(display_id)).is_ok()
+}
+
 /// The screen to capture: the main one (or the first), or the display with
 /// this ID. A just-made virtual display can take a moment to be listed
 /// and to get its size (macOS 13 reports 0×0 at first).

@@ -157,7 +157,25 @@ async fn open_viewer(
                 .into(),
         );
     }
-    let me = gethostname::gethostname().to_string_lossy().into_owned();
+    let shown = name.trim();
+    let shown = if shown.is_empty() {
+        address.as_str()
+    } else {
+        shown
+    };
+    // Is it sharing? Say so here rather than in a browser error page.
+    let reach = tokio::time::timeout(
+        std::time::Duration::from_secs(3),
+        tokio::net::TcpStream::connect(address.as_str()),
+    )
+    .await;
+    if !matches!(reach, Ok(Ok(_))) {
+        return Err(format!(
+            "{shown} isn't sharing right now: open DeskSpan on it and press Start sharing, then try again"
+        ));
+    }
+    // The name the other computer shows in its Allow question.
+    let me = discover::display_name();
     let url = tauri::Url::parse_with_params(
         &format!("http://{address}/"),
         &[("viewer", "1"), ("name", me.as_str())],
@@ -175,12 +193,6 @@ async fn open_viewer(
         let _ = w.show();
         return w.set_focus().map_err(|e| e.to_string());
     }
-    let shown = name.trim();
-    let shown = if shown.is_empty() {
-        address.as_str()
-    } else {
-        shown
-    };
     WebviewWindowBuilder::new(&app, &label, WebviewUrl::External(url))
         .title(format!("{shown} — DeskSpan"))
         .inner_size(1280.0, 800.0)

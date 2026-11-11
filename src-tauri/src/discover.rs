@@ -56,8 +56,37 @@ fn daemon(s: &mut State) -> Result<ServiceDaemon, String> {
     Ok(d)
 }
 
-fn host_name() -> String {
-    gethostname::gethostname().to_string_lossy().into_owned()
+/// The name other computers see: the Mac's own name ("Jag's MacBook Air"),
+/// else the host name without ".local". No dots: the announcement library
+/// can't answer for an instance name with an escaped dot in it.
+pub fn display_name() -> String {
+    #[cfg(target_os = "macos")]
+    if let Ok(out) = std::process::Command::new("scutil")
+        .args(["--get", "ComputerName"])
+        .output()
+    {
+        let name = String::from_utf8_lossy(&out.stdout).trim().to_string();
+        if out.status.success() && !name.is_empty() {
+            return instance_label(&name);
+        }
+    }
+    let raw = gethostname::gethostname().to_string_lossy().into_owned();
+    instance_label(raw.strip_suffix(".local").unwrap_or(&raw))
+}
+
+/// Dots become spaces; at most 60 characters.
+fn instance_label(name: &str) -> String {
+    let clean: String = name
+        .chars()
+        .map(|c| if c == '.' || c.is_control() { ' ' } else { c })
+        .take(60)
+        .collect();
+    let clean = clean.trim().to_string();
+    if clean.is_empty() {
+        "DeskSpan computer".into()
+    } else {
+        clean
+    }
 }
 
 /// Announce this computer (sharing started). Failures only cost discovery:
@@ -74,7 +103,7 @@ pub fn announce(port: u16) {
     if let Some(old) = s.announced.take() {
         let _ = d.unregister(&old);
     }
-    let name = host_name();
+    let name = display_name();
     // mDNS host names are plain labels ending in ".local.".
     let label: String = name
         .chars()
@@ -296,6 +325,16 @@ mod tests {
         )];
         assert!(same_network(Ipv4Addr::new(192, 168, 1, 223), &mine));
         assert!(!same_network(Ipv4Addr::new(192, 168, 56, 1), &mine));
+    }
+
+    #[test]
+    fn announced_names_have_no_dots() {
+        assert_eq!(
+            instance_label("Jagdeeps-MacBook-Air-2.local"),
+            "Jagdeeps-MacBook-Air-2 local"
+        );
+        assert_eq!(instance_label("Jag's MacBook Air"), "Jag's MacBook Air");
+        assert_eq!(instance_label("..."), "DeskSpan computer");
     }
 
     #[test]

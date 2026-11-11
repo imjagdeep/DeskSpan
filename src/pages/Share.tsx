@@ -263,7 +263,8 @@ function pictureText(v: VideoStatus): string {
 
 /** "Allow <device>?" */
 function Ask({ r }: { r: RequestView }) {
-  const [control, setControl] = useState(false);
+  // A computer connecting from DeskSpan wants its mouse and keyboard to work.
+  const [control, setControl] = useState(r.computer);
   const answer = (allow: boolean) =>
     api
       .answerRequest(r.id, allow, control)
@@ -274,7 +275,10 @@ function Ask({ r }: { r: RequestView }) {
       <h2>
         {r.name} wants to connect <span className="muted small">{r.address}</span>
       </h2>
-      <div className="muted small">Only allow devices you know. It will see this computer's screen while you share.</div>
+      <div className="muted small">
+        {r.computer ? "Another computer with DeskSpan. " : ""}Only allow devices you know. It will see this computer's screen while you
+        share.
+      </div>
       <label className="check-row">
         <input type="checkbox" checked={control} onChange={(e) => setControl(e.target.checked)} />
         <span>

@@ -46,6 +46,8 @@ export interface RequestView {
   id: string;
   name: string;
   address: string;
+  /** another computer (Connect), not a phone or tablet */
+  computer: boolean;
 }
 
 export interface UsbPhone {

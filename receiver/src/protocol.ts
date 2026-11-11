@@ -13,11 +13,13 @@ export interface ScreenInfo {
 export type Auth =
   | { kind: "token"; token: string }
   | { kind: "code"; code: string }
-  | { kind: "device"; id: string; key: string };
+  | { kind: "device"; id: string; key: string }
+  /** from another computer's DeskSpan window: no code, just Allow there */
+  | { kind: "ask" };
 
 /** Receiver → computer */
 export type Outbound =
-  | { t: "hello"; name: string; screen: ScreenInfo; auth: Auth }
+  | { t: "hello"; name: string; screen: ScreenInfo; auth: Auth; viewer: boolean }
   | { t: "answer"; sdp: string }
   | { t: "ice"; c: RTCIceCandidateInit }
   | ({ t: "screen" } & ScreenInfo)
