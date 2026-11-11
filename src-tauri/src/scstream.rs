@@ -168,7 +168,9 @@ impl Drop for Capture {
 }
 
 /// Call an API that reports back through a completion block, and wait.
-fn wait_for(call: impl FnOnce(&block2::DynBlock<dyn Fn(*mut NSError)>)) -> Result<(), String> {
+pub(crate) fn wait_for(
+    call: impl FnOnce(&block2::DynBlock<dyn Fn(*mut NSError)>),
+) -> Result<(), String> {
     let (tx, rx) = mpsc::channel::<Result<(), String>>();
     let handler = RcBlock::new(move |error: *mut NSError| {
         let result = match unsafe { error.as_ref() } {

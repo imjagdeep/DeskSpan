@@ -4,6 +4,7 @@
 import "./style.css";
 import { toScreen } from "./geometry";
 import { guessDeviceName, parseInbound, type Auth, type InputEvent, type Outbound, type ScreenInfo } from "./protocol";
+import { label, summarize, type Stat } from "./stats";
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 
@@ -25,6 +26,7 @@ const retry = $<HTMLButtonElement>("retry");
 const bar = $<HTMLElement>("bar");
 const barHost = $<HTMLElement>("bar-host");
 const soundBtn = $<HTMLButtonElement>("sound");
+const statsEl = $<HTMLElement>("stats");
 const fullBtn = $<HTMLButtonElement>("full");
 const leaveBtn = $<HTMLButtonElement>("leave");
 const fsPrompt = $<HTMLElement>("fs-prompt");
@@ -262,6 +264,10 @@ async function onMessage(raw: string) {
         console.warn("ice", e);
       }
       break;
+    case "control":
+      // Turned on or off on the computer while connected.
+      control = m.on;
+      break;
     case "notice":
       // E.g. why there's no picture; shown until the picture arrives.
       if (!document.body.classList.contains("live")) show("message", "No picture yet", m.text, true);
@@ -285,6 +291,8 @@ async function onOffer(sdp: string) {
   peer.ontrack = (ev) => {
     const stream = ev.streams[0] ?? new MediaStream([ev.track]);
     if (video.srcObject !== stream) video.srcObject = stream;
+    // Only offer sound when the computer sends some.
+    soundBtn.hidden = stream.getAudioTracks().length === 0;
     void video.play().catch(() => undefined);
     show("live");
   };
@@ -305,8 +313,26 @@ async function onOffer(sdp: string) {
   }
 }
 
+// ---------- "30 fps · 42 ms" in the bar ----------
+
+let lastVideo: Stat | null = null;
+window.setInterval(() => {
+  const peer = pc;
+  if (!peer || bar.hidden) return;
+  peer
+    .getStats()
+    .then((report) => {
+      const { summary, video: v } = summarize([...report.values()] as Stat[], lastVideo);
+      lastVideo = v;
+      statsEl.textContent = label(summary);
+    })
+    .catch(() => undefined);
+}, 1000);
+
 function closePeer() {
   input = null;
+  lastVideo = null;
+  statsEl.textContent = "";
   if (pc) {
     pc.onicecandidate = null;
     pc.ontrack = null;

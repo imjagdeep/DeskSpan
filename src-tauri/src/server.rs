@@ -115,6 +115,10 @@ pub enum Outbound<'a> {
     Offer {
         sdp: &'a str,
     },
+    /// Control was turned on or off for this device on the computer.
+    Control {
+        on: bool,
+    },
     /// Something the receiver should show (e.g. why there's no picture).
     Notice {
         text: &'a str,
@@ -213,7 +217,7 @@ struct Inner {
 }
 
 pub struct Hub {
-    app: AppHandle,
+    pub(crate) app: AppHandle,
     data_dir: std::path::PathBuf,
     inner: Mutex<Inner>,
     /// Android phones on a USB cable (adb.rs).
@@ -630,8 +634,21 @@ impl Hub {
         Ok(())
     }
 
+    /// Whether to send the computer's sound (read when a device connects).
+    pub fn sound_on(&self) -> bool {
+        crate::settings::Settings::load(&self.data_dir).sound
+    }
+
+    /// Takes effect at once, also on a connected device.
     pub fn set_control(&self, id: &str, control: bool) -> Result<(), String> {
-        self.lock().devices.set_control(id, control)?;
+        {
+            let mut g = self.lock();
+            g.devices.set_control(id, control)?;
+            let msg = json(&Outbound::Control { on: control });
+            for s in g.sessions.values().filter(|s| s.device_id == id) {
+                let _ = s.tx.send(msg.clone());
+            }
+        }
         self.changed();
         Ok(())
     }

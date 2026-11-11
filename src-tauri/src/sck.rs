@@ -63,6 +63,11 @@ pub fn capture_display(display_id: u32, w: u32, h: u32) -> Result<Rgba, String> 
         .map_err(|_| "macOS didn't hand over the screen picture in time".to_string())?
 }
 
+/// The main display (for the sound capture, which needs one to attach to).
+pub fn main_display() -> Result<Retained<SCDisplay>, String> {
+    find_display(objc2_core_graphics::CGMainDisplayID())
+}
+
 pub fn find_display(display_id: u32) -> Result<Retained<SCDisplay>, String> {
     let (tx, rx) = mpsc::channel::<Result<Retained<SCDisplay>, String>>();
     let handler = RcBlock::new(

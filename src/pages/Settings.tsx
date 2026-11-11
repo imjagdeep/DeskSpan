@@ -99,6 +99,22 @@ export function SettingsPage() {
 
       {s && (
         <div className="card">
+          <h2>Sound</h2>
+          <label className="check-row">
+            <input type="checkbox" checked={s.sound} onChange={(e) => void save({ sound: e.target.checked })} />
+            <span>
+              Send the computer's sound to the devices
+              <span className="muted small block">
+                Videos and calls play on the phone or tablet showing the screen (tap Sound on there). Windows and macOS; on a Mac it uses the same
+                Screen Recording permission as the picture. Takes effect the next time a device connects.
+              </span>
+            </span>
+          </label>
+        </div>
+      )}
+
+      {s && (
+        <div className="card">
           <h2>Start-up</h2>
           <label className="check-row">
             <input type="checkbox" checked={s.start_on_launch} onChange={(e) => void save({ start_on_launch: e.target.checked })} />

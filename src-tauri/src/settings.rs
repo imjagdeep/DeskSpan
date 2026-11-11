@@ -20,6 +20,8 @@ pub struct Settings {
     pub autostart_applied: bool,
     /// Android phones by USB cable (adb) were set up.
     pub usb_cable: bool,
+    /// Send the computer's sound to the devices (Windows, macOS).
+    pub sound: bool,
 }
 
 impl Default for Settings {
@@ -30,6 +32,7 @@ impl Default for Settings {
             start_on_launch: false,
             autostart_applied: false,
             usb_cable: false,
+            sound: true,
         }
     }
 }

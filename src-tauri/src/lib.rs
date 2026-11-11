@@ -5,11 +5,15 @@
 
 mod account;
 mod adb;
+mod audio;
 mod desklab;
 mod devices;
 mod h264lib;
+mod input;
 mod media;
 mod peer;
+#[cfg(target_os = "macos")]
+mod scaudio;
 #[cfg(target_os = "macos")]
 mod sck;
 #[cfg(target_os = "macos")]

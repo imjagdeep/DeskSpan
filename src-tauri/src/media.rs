@@ -126,9 +126,10 @@ async fn serve(
         None => mirror,
     };
 
+    let mut control = crate::input::Control::new(hub.clone(), join.device_id.clone(), display);
     let mut tries = 0u32;
     loop {
-        match peer::run(&hub, session, &mut signals, &video, join.usb).await {
+        match peer::run(&hub, session, &mut signals, &video, join.usb, &mut control).await {
             Ended::Left => break,
             Ended::Fatal(why) => {
                 tracing::warn!("session {session}: {why}");
