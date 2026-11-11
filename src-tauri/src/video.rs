@@ -404,9 +404,7 @@ fn monitor_for(target: Option<u32>) -> Result<xcap::Monitor, String> {
                 .position(|m| m.is_primary().unwrap_or(false))
                 .or(if all.is_empty() { None } else { Some(0) }),
             Some(id) => all.iter().position(|m| {
-                m.id().ok() == Some(id)
-                    && m.width().unwrap_or(0) > 0
-                    && m.height().unwrap_or(0) > 0
+                m.id().ok() == Some(id) && m.width().unwrap_or(0) > 0 && m.height().unwrap_or(0) > 0
             }),
         };
         if let Some(i) = found {
