@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { PageHeader } from "../components/Common";
 import { DeskLabTools } from "../components/DeskLab";
 import { api, type Settings } from "../lib/api";
+import { DEFAULT_PICTURE, type Picture, type PictureSize } from "../lib/picture";
 import { setAutoUpdate, setTheme, toastError, useAppInfo, useAutoUpdate, useTheme, type Theme } from "../lib/store";
 import { checkAndDownload, installNow, useUpdate } from "../lib/updates";
 
@@ -96,6 +97,8 @@ export function SettingsPage() {
           </div>
         </div>
       )}
+
+      {s && <PictureCard picture={s.picture ?? DEFAULT_PICTURE} onChange={(picture) => void save({ picture })} />}
 
       {s && (
         <div className="card">
@@ -195,6 +198,53 @@ export function SettingsPage() {
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+/** The default picture: size, frame rate and the battery saver. */
+function PictureCard({ picture, onChange }: { picture: Picture; onChange: (p: Picture) => void }) {
+  const sizes: { id: PictureSize; label: string; hint: string }[] = [
+    { id: "full", label: "Full", hint: "Up to 4K: sharpest text, most work for both devices" },
+    { id: "balanced", label: "Balanced", hint: "Up to 2560 wide: sharp on most screens" },
+    { id: "light", label: "Light", hint: "Up to 1600 wide: easiest on Wi-Fi and batteries" },
+  ];
+  return (
+    <div className="card">
+      <h2>Picture</h2>
+      <p className="muted small">
+        For the main screen and for devices without their own choice (set one under Devices). Takes effect the next time a device connects.
+      </p>
+      <div className="setting-line">
+        <span>Size</span>
+        <div className="segmented" role="group" aria-label="Picture size">
+          {sizes.map((z) => (
+            <button key={z.id} title={z.hint} className={picture.size === z.id ? "active" : ""} onClick={() => onChange({ ...picture, size: z.id })}>
+              {z.label}
+            </button>
+          ))}
+        </div>
+      </div>
+      <div className="setting-line">
+        <span>
+          Frame rate
+          <span className="muted small block">120 suits ProMotion iPads and fast phones; a ceiling, big screens may manage fewer.</span>
+        </span>
+        <div className="segmented" role="group" aria-label="Frame rate">
+          {[30, 60, 120].map((f) => (
+            <button key={f} className={picture.fps === f ? "active" : ""} onClick={() => onChange({ ...picture, fps: f })}>
+              {f} fps
+            </button>
+          ))}
+        </div>
+      </div>
+      <label className="check-row">
+        <input type="checkbox" checked={picture.saver} onChange={(e) => onChange({ ...picture, saver: e.target.checked })} />
+        <span>
+          Battery saver
+          <span className="muted small block">Fewer bits per frame: less work for the computer and the device, a little softer picture.</span>
+        </span>
+      </label>
     </div>
   );
 }
